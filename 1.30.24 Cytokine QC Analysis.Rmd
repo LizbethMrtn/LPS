@@ -1,0 +1,1342 @@
+---
+title: "1.30.24 Cytokine QC Analysis"
+author: "EIF, KH"
+date: "2024-01-30"
+output: html_document
+---
+setwd("/Users/flandree/Documents/2023 2024 Sabbatical/02 UCSD Project/1.30.24")
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## R Markdown
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. 
+
+This document shows the process of conducting quality control on the cytokine data, imputing missing values, and running preliminary factor analysis. See "LPS_QC_Documentation_2024.01.04" Word document for more details.
+
+```{r libraries}
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(missForest)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(rmarkdown)
+
+file_path = "/Users/flandree/Documents/2023 2024 Sabbatical/02 UCSD Project/1.30.24"
+figure_path = "/Users/flandree/Documents/2023 2024 Sabbatical/02 UCSD Project/1.30.24"
+
+raw_data = read.xlsx(paste(file_path, "cytokine_data_merged_project_9_15_RAW.xlsx", sep = "/"), sheet = "Data") # this is the data without exclusions or imputation
+cleaned_data = read.xlsx(paste(file_path, "cytokine_data_merged_project_9_15_USE.xlsx", sep = "/"), sheet = "Data") # this is the data with exclusions
+imputed_data = read.xlsx(paste(file_path, "cytokine_data_merged_project_9_15_USE.xlsx", sep = "/"), sheet = "Data_Imp") # this is the data with exclusions and imputation
+
+cytokine_colors = c("#F8766D", "#B79F00", "#00BA38", "#00BFC4", "#619CFF", "#F564E3", "#910C00", "#00641F", "#005FA7", "#9B00A6")
+```
+
+### Project overview
+
+```{r generating_base_info}
+raw_data %>%
+  group_by(`Project.#`) %>%
+  summarise(num_subjects = n_distinct(Subject.ID), # Number of subjects
+            num_lps_samples = 4 * sum(!is.na(`Untransformed.LPS0_TNF-α`)), # Number of LPS samples
+            num_non_lps_samples = sum(!is.na(`Untransformed.NonLPS_TNF-α`)), # Number of non-LPS samples
+            num_plates = n_distinct(`Plate.#`)) # Number of plates
+```
+
+```{r generating_visit_number_info}
+raw_data %>%
+  group_by(`Project.#`, Subject.ID) %>%
+  summarise(num_visits = n()) %>% # finds the number of visits per subject in each project
+  group_by(`Project.#`, num_visits) %>% 
+  summarise(value = n()) %>% # finds the number of subjects with 1, 2, 3, or 4 visits in each project
+  pivot_wider(values_from = value, names_from = num_visits, names_prefix = "visit_") # makes the table more readable
+```
+
+### Excluded samples
+
+```{r create_df_for_plotting}
+plot_data.average = raw_data %>%
+  filter(order > 76) %>%
+  filter((order != 104) & (order != 143)) %>% # remove excluded samples
+  pivot_longer(`Untransformed.LPS0_TNF-α`:`Untransformed.LPS600_IFN-γ`) %>% # pivot to each cytokine measurement per line
+  select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+  mutate(lps_dose = str_extract(name, "(?<=LPS)[0-9]{1,3}"), # pull out LPS dose from column name
+         cytokine = str_extract(name, "(?<=LPS[0-9]{1,3}_).+")) %>% # pull out cytokine from column name
+  filter(!is.na(value)) %>% # get rid of missing values
+  group_by(lps_dose, cytokine) %>% 
+  summarise(value_avg = mean(value),
+            value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+            value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>% # calculate average for each plot
+  mutate(name = "Average [95% CI] (all samples except #104 and #143)")
+
+plot_data.excluded = raw_data %>%
+  filter((order == 104) | (order == 143)) %>% # remove excluded samples
+  pivot_longer(`Untransformed.LPS0_TNF-α`:`Untransformed.LPS600_IFN-γ`) %>% # pivot to each cytokine measurement per line
+  select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+  mutate(lps_dose = str_extract(name, "(?<=LPS)[0-9]{1,3}"), # pull out LPS dose from column name
+         cytokine = str_extract(name, "(?<=LPS[0-9]{1,3}_).+")) %>% # pull out cytokine from column name
+  select(order, lps_dose, cytokine, value) %>%
+  mutate(value_avg = value, value_L95 = value, value_U95 = value) %>% # this allows us to plot the 2 dataframes together
+  mutate(name = paste("Order", order)) %>% # creates a group name 
+  select(lps_dose, cytokine, value_avg, value_L95, value_U95, name) %>%
+  bind_rows(plot_data.average) # merge with average data
+
+rm(plot_data.average)
+```
+
+```{r excluded_samples_plot}
+# Create plot of order 104 and average
+ggplot(plot_data.excluded %>% filter(name != "Order 143"), aes(x = as.numeric(lps_dose), y = value_avg, ymin = value_L95, ymax = value_U95, color = name, group = name)) + 
+  geom_pointrange(key_glyph = "blank") + 
+  geom_line(linewidth = 0.75) + 
+  facet_wrap(vars(cytokine), scales = "free", ncol = 5) + 
+  theme_bw() + 
+  xlab("LPS dose") + 
+  ylab("[Cytokine]") + 
+  theme(legend.position = "top", legend.title = element_blank())
+ggsave(paste(figure_path, "/Excluded Samples Order 104.png", sep = ""), width = 10, height = 5)
+
+# Create plot of order 143 and average
+ggplot(plot_data.excluded %>% filter(name != "Order 104"), aes(x = as.numeric(lps_dose), y = value_avg, ymin = value_L95, ymax = value_U95, color = name, group = name)) + 
+  geom_pointrange(key_glyph = "blank") + 
+  geom_line(linewidth = 0.75) + 
+  facet_wrap(vars(cytokine), scales = "free", ncol = 5) + 
+  theme_bw() + 
+  xlab("LPS dose") + 
+  ylab("[Cytokine]") + 
+  theme(legend.position = "top", legend.title = element_blank())
+ggsave(paste(figure_path, "/Excluded Samples Order 143.png", sep = ""), width = 10, height = 5)
+
+rm(plot_data.excluded)
+```
+
+```{r look_at_relevant_data}
+raw_data %>%
+  filter((Subject.ID == 1145) | (Subject.ID == 1231)) %>%
+  select(order, `Project.#`, `Plate.#`, Assessment.ID, Subject.ID, recruitment_site, Visit.Number, Visit.Date) %>% # collect relevant columns
+  mutate(Visit.Date = as.Date(Visit.Date, origin = "1899-12-30")) %>%
+  group_by(Subject.ID) %>% 
+  mutate(num_visits = n()) %>% # calculate if the subject has any other visits
+  filter((order == 104) | (order == 143))
+```
+
+### Mean cytokine levels
+
+```{r mean_cytokine_levels}
+# generate table in another tab with the mean cytokine levels
+View(raw_data %>%
+  filter((order != 104) & (order != 143)) %>% # remove excluded samples
+  pivot_longer(`Untransformed.LPS0_TNF-α`:`Untransformed.NonLPS_IFN-γ`) %>% # pivot to each cytokine measurement per line
+  select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+  mutate(lps_dose = if_else(is.na(str_extract(name, "(?<=LPS)[0-9]{1,3}")), "Non-LPS", paste("LPS", str_extract(name, "(?<=LPS)[0-9]{1,3}"))), # pull out LPS dose from column name
+         cytokine = str_extract(name, "(?<=LPS[0-9]{0,3}_).+")) %>% # pull out cytokine from column name
+  filter(!is.na(value)) %>% # get rid of missing values
+  group_by(lps_dose, cytokine) %>% 
+  summarise(value_avg = mean(value),
+            value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+            value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>%
+  mutate(value = paste(format(value_avg, nsmall = 2, digits = 2, trim = TRUE), " [", format(value_L95, nsmall = 2, digits = 2, trim = TRUE), ",", format(value_U95, nsmall = 2, digits = 2, trim = TRUE), "]", sep = "")) %>% # calculate mean and 95% CI
+  pivot_wider(id_cols = cytokine, names_from = lps_dose, values_from = value) %>%
+  select(cytokine, `Non-LPS`, `LPS 0`, `LPS 70`, `LPS 200`, `LPS 600`))
+```
+
+### Missing cytokine values
+
+```{r missing_cytokine_values}
+# generate table in another tab with the missing cytokine numbers (note that this is a little complicated for formatting's sake)
+View(raw_data %>%
+       filter(order > 76) %>%
+       filter((order != 104) & (order != 143)) %>% # remove excluded samples
+       pivot_longer(`Untransformed.LPS0_TNF-α`:`Untransformed.LPS600_IFN-γ`) %>% # pivot to each cytokine measurement per line
+       select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+       mutate(lps_dose = if_else(is.na(str_extract(name, "(?<=LPS)[0-9]{1,3}")), "Non-LPS", paste("LPS", str_extract(name, "(?<=LPS)[0-9]{1,3}"))), # pull out LPS dose from column name
+              cytokine = str_extract(name, "(?<=LPS[0-9]{0,3}_).+")) %>% # pull out cytokine from column name
+       group_by(lps_dose, cytokine) %>% 
+       summarise(n_missing = sum(is.na(value)),
+                 pct_missing = sum(is.na(value)) / n() * 100) %>%
+       mutate(value = if_else(n_missing == 0, "", paste(round(pct_missing), "% (", n_missing, ")", sep = ""))) %>% # calculate mean and 95% CI
+       pivot_wider(id_cols = cytokine, names_from = lps_dose, values_from = value) %>%
+       select(cytokine, `LPS 0`, `LPS 70`, `LPS 200`, `LPS 600`) %>%
+       inner_join(raw_data %>% # SAME PROCESS FOR NON-LPS
+                    filter(order <= 76) %>%
+                    filter((order != 104) & (order != 143)) %>% # remove excluded samples
+                    pivot_longer(`Untransformed.NonLPS_TNF-α`:`Untransformed.NonLPS_IFN-γ`) %>% # pivot to each cytokine measurement per line
+                    select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+                    mutate(lps_dose = if_else(is.na(str_extract(name, "(?<=LPS)[0-9]{1,3}")), "Non-LPS", paste("LPS", str_extract(name, "(?<=LPS)[0-9]{1,3}"))), # pull out LPS dose from column name
+                           cytokine = str_extract(name, "(?<=LPS[0-9]{0,3}_).+")) %>% # pull out cytokine from column name
+                    group_by(lps_dose, cytokine) %>% 
+                    summarise(n_missing = sum(is.na(value)),
+                              pct_missing = sum(is.na(value)) / n() * 100) %>%
+                    mutate(value = if_else(n_missing == 0, "", paste(round(pct_missing), "% (", n_missing, ")", sep = ""))) %>% # calculate mean and 95% CI
+                    pivot_wider(id_cols = cytokine, names_from = lps_dose, values_from = value) %>%
+                    select(cytokine, `Non-LPS`)) %>%
+       select(cytokine, `Non-LPS`, `LPS 0`, `LPS 70`, `LPS 200`, `LPS 600`))
+```
+
+```{r il12p70_missingness}
+# generates counts by project and plate
+raw_data %>%
+  filter((if_any(ends_with("IL-12p70") & contains(".LPS"), ~ is.na(.))) & (order > 76)) %>%
+  select(order, `Project.#`, `Plate.#`, (ends_with("IL-12p70") & contains(".LPS"))) %>%
+  group_by(`Project.#`, `Plate.#`) %>%
+  summarise(n = n())
+
+# looks at missingness across orders
+raw_data %>%
+  filter((if_any(ends_with("IL-12p70") & contains(".LPS"), ~ is.na(.))) & (order > 76)) %>%
+  select(order, `Project.#`, `Plate.#`, (ends_with("IL-12p70") & contains(".LPS"))) %>%
+  mutate(missing_LPS0 = if_else(is.na(`Untransformed.LPS0_IL-12p70`), 1, 0),
+         missing_LPS70 = if_else(is.na(`Untransformed.LPS70_IL-12p70`), 1, 0),
+         missing_LPS200 = if_else(is.na(`Untransformed.LPS200_IL-12p70`), 1, 0),
+         missing_LPS600 = if_else(is.na(`Untransformed.LPS600_IL-12p70`), 1, 0)) %>%
+  group_by(missing_LPS0, missing_LPS70, missing_LPS200, missing_LPS600) %>%
+  summarise(num_samples = n()) %>%
+  arrange(missing_LPS0, missing_LPS70, missing_LPS200, missing_LPS600)
+```
+
+### Plotting of LPS data by cytokine and dose
+
+```{r prepare_df_for_plotting}
+# This is a lot of data transformations to make plotting easier and avoid having to hand code each plot
+
+# this will remove the excluded samples, filter to only LPS samples, and calculate the difference columns
+plot_data = raw_data %>%
+  filter(order > 76) %>%
+  filter((order != 104) & (order != 143)) %>% # remove excluded samples
+  pivot_longer(`Untransformed.LPS0_TNF-α`:`Untransformed.LPS600_IFN-γ`) %>% # pivot to each cytokine measurement per line
+  select(order, `Project.#`, `Plate.#`, starts_with("silanized_lps"), name, value) %>% 
+  mutate(lps_dose = str_extract(name, "(?<=LPS)[0-9]{1,3}"), # pull out LPS dose from column name
+         cytokine = str_extract(name, "(?<=LPS[0-9]{1,3}_).+")) %>% # pull out cytokine from column name
+  pivot_wider(id_cols = c("order", "Project.#", "Plate.#", "cytokine", "silanized_lps_0", "silanized_lps_70", "silanized_lps_200", "silanized_lps_600"), names_from = lps_dose, names_prefix = "LPS ", values_from = c("value")) %>% # pivot so each timepoint and cytokine have a row
+  mutate(`LPS 70 - LPS 0` = `LPS 70` - `LPS 0`,
+         `LPS 200 - LPS 70` = `LPS 200` - `LPS 70`,
+         `LPS 600 - LPS 200` = `LPS 600` - `LPS 200`,
+         `LPS 600 - LPS 70` = `LPS 600` - `LPS 70`) %>% # calculate difference column
+  pivot_longer(cols = `LPS 0`:`LPS 600 - LPS 70`) %>% # make it so each value has a row
+  mutate(silanized = case_when(
+    grepl("LPS 0", name) & (silanized_lps_0 == 1) ~ 1,
+    grepl("LPS 70", name) & (silanized_lps_70 == 1) ~ 1,
+    grepl("LPS 200", name) & (silanized_lps_200 == 1) ~ 1,
+    grepl("LPS 600", name) & (silanized_lps_600 == 1) ~ 1,
+    TRUE ~ 0
+  )) %>% # create silanized column
+  select(-silanized_lps_0:-silanized_lps_600) %>% # get rid of unneeded silanized columns
+  mutate(difference = if_else(grepl("-", name), 1, 0)) %>% # indicates if the value is a concentration or difference
+  mutate(name = factor(name, c("LPS 0", "LPS 70", "LPS 200", "LPS 600", "LPS 70 - LPS 0", "LPS 200 - LPS 70", "LPS 600 - LPS 200", "LPS 600 - LPS 70"))) %>% # create order for doses and differences
+  mutate(`Project.#` = paste("Proj.", `Project.#`),
+         `Plate.#` = paste(`Project.#`, "Plate", `Plate.#`),
+         `Project.#` = factor(`Project.#`, c("Proj. 9", "Proj. 10", "Proj. 15")),
+         `Plate.#` = factor(`Plate.#`, c("Proj. 9 Plate 1", "Proj. 10 Plate 1", "Proj. 10 Plate 2", "Proj. 10 Plate 3", "Proj. 10 Plate 4", "Proj. 10 Plate 5", "Proj. 15 Plate 1", "Proj. 15 Plate 2", "Proj. 15 Plate 3", "Proj. 15 Plate 4", "Proj. 15 Plate 5", "Proj. 15 Plate 6", "Proj. 15 Plate 7", "Proj. 15 Plate 8", "Proj. 15 Plate 9", "Proj. 15 Plate 10", "Proj. 15 Plate 11", "Proj. 15 Plate 12"))) %>% # clean up project and plate columns
+  filter(!((order == 191) & (cytokine == "IL-4") & (grepl("LPS 600", name)))) # exclude individual extreme points here
+
+cytokines = sort(unique(plot_data$cytokine))
+```
+
+```{r untransformed_graphs_all_projects}
+# Plots for raw values
+for (cytokine.current in cytokines) {
+  ggplot(plot_data %>% filter(difference == 0) %>% filter(cytokine == cytokine.current), aes(y = order, x = value, color = as.factor(`Project.#`), shape = factor(silanized, levels = c(0,1), labels = c("Silanized", "Non-silanized")))) + 
+    geom_vline(xintercept = 0, color = "red") +
+    geom_point(size = 2) + 
+    facet_wrap(vars(name), ncol = 4, scale = "free") + 
+    theme_bw() + 
+    scale_y_continuous(limits = c(76.5, 232.5), expand = c(0.01, 0.01), breaks = seq(0, 232, 10), minor_breaks = seq(-0.5, 233.5, 1)) +
+    xlab("") +
+    ylab("Visit order") + 
+    theme(axis.title.x = element_text(face = "bold"), panel.grid.minor.y = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.x = element_blank())
+  
+  ggsave(paste(figure_path, "/Untransformed All Projects/", cytokine.current, ".png", sep = ""), width = 14, height = 3.5)
+}
+
+# Plots for differences
+for (cytokine.current in cytokines) {
+  ggplot(plot_data %>% filter(difference == 1) %>% filter(cytokine == cytokine.current), aes(y = order, x = value, color = as.factor(`Project.#`), shape = factor(silanized, levels = c(0,1), labels = c("Non-silanized", "Silanized")))) + 
+    geom_vline(xintercept = 0, color = "red") +
+    geom_point(size = 2) + 
+    facet_wrap(vars(name), ncol = 4, scale = "free") + 
+    theme_bw() + 
+    scale_y_continuous(limits = c(76.5, 232.5), expand = c(0.01, 0.01), breaks = seq(0, 232, 10), minor_breaks = seq(-0.5, 233.5, 1)) +
+    xlab("") +
+    ylab("Visit order") + 
+    theme(axis.title.x = element_text(face = "bold"), panel.grid.minor.y = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.x = element_blank())
+  
+  ggsave(paste(figure_path, "/Untransformed All Projects/", cytokine.current, " Difference.png", sep = ""), width = 14, height = 3.5)
+}
+
+rm(cytokine.current, cytokines)
+```
+
+### Batch issue plots
+
+```{r batch_issue_scatterplot}
+ggplot(plot_data %>% filter(difference == 0) %>% filter(name == "LPS 200") %>% filter(cytokine %in% c("IL-1β", "IL-6", "IL-8", "IL-10", "TNF-α")), aes(y = order, x = value, color = as.factor(`Project.#`), shape = factor(silanized, levels = c(0,1), labels = c("Non-silanized", "Silanized")))) + 
+    geom_vline(xintercept = 0, color = "red") +
+    geom_point(size = 2) + 
+    facet_wrap(vars(cytokine), ncol = 3, scale = "free") + 
+    theme_bw() + 
+    scale_y_continuous(limits = c(76.5, 232.5), expand = c(0.01, 0.01), breaks = seq(0, 232, 10), minor_breaks = seq(-0.5, 233.5, 1)) +
+    xlab("") +
+    ylab("Visit order") + 
+    theme(axis.title.x = element_text(face = "bold"), panel.grid.minor.y = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.x = element_blank())
+ggsave(paste(figure_path, "/Batch Issue Scatterplot.png", sep = ""), width = 14, height = 7)
+```
+
+```{r batch_issue_line}
+plot_data.batch_issue = plot_data %>% 
+  filter(difference == 0) %>% 
+  filter(cytokine %in% c("IL-1β", "IL-6", "IL-8", "IL-10", "TNF-α")) %>%
+  filter((order >= 123) & (order <= 139)) %>%
+  group_by(cytokine, name) %>%
+  summarise(value_avg = mean(value),
+            value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+            value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>% # calculate average for each plot
+  mutate(group = "Order #123-#139") %>%
+  bind_rows(plot_data %>% 
+              filter(difference == 0) %>% 
+              filter(cytokine %in% c("IL-1β", "IL-6", "IL-8", "IL-10", "TNF-α")) %>%
+              filter((order >= 153) & (order <= 169)) %>%
+              group_by(cytokine, name) %>%
+              summarise(value_avg = mean(value),
+                        value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+                        value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>% # calculate average for each plot
+              mutate(group = "Order #153-#169"))
+
+ggplot(plot_data.batch_issue, aes(y = value_avg, ymin = value_L95, ymax = value_U95, x = as.numeric(gsub("LPS ", "", name)), color = group, group = group)) + 
+    geom_pointrange(size = 0.5, linewidth = 1) + 
+    geom_line(linewidth = 1) + 
+    facet_wrap(vars(cytokine), ncol = 3, scale = "free") + 
+    theme_bw() + 
+    xlab("[LPS]") +
+    ylab("[Cytokine]") + 
+    theme(axis.title = element_text(face = "bold"), legend.position = "top", panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.title = element_blank())
+ggsave(paste(figure_path, "/Batch Issue Line.png", sep = ""), width = 14, height = 7)
+
+rm(plot_data.batch_issue)
+```
+
+### Comparison of LPS 0 and non-LPS samples
+
+```{r plot_comparison}
+plot_data.comp = raw_data %>%
+  filter((order != 104) & (order != 143)) %>%
+  select(order, `Project.#`, contains("NonLPS"), contains("LPS0"), silanized_lps_0) %>%
+  pivot_longer(cols = `Untransformed.NonLPS_TNF-α`:`Untransformed.LPS0_IFN-γ`) %>%
+  mutate(cytokine = str_split_i(name, "_", 2),
+         silanized = if_else(order > 76, silanized_lps_0, 1)) %>%
+  mutate(cytokine = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))
+  
+ggplot(plot_data.comp %>% filter(cytokine %in% c("IL-1β", "IL-6", "IL-8", "TNF-α")), aes(x = order, y = value, color = factor(`Project.#`, levels = c(9, 10, 15), labels = c("Proj. 9", "Proj. 10", "Proj. 15")), shape = factor(silanized, levels = c(0,1), labels = c("Silanized", "Non-silanized")))) +
+  geom_vline(xintercept = 76.5, color = "red") +
+  geom_point(size = 2) + 
+  facet_wrap(vars(cytokine), ncol = 2, scale = "free") + 
+  theme_bw()  +
+  scale_x_continuous(limits = c(-0.5, 232.5), expand = c(0.01, 0.01), breaks = seq(0, 232, 40), minor_breaks = seq(-0.5, 233.5, 1)) +
+  xlab("Visit order") +
+  ylab("") + 
+  theme(axis.title.x = element_text(face = "bold"), panel.grid.minor.x = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.y = element_blank())
+ggsave(paste(figure_path, "/TL4R_Comparison_LPS0_NonLPS.png", sep = ""), width = 9, height = 7)
+
+ggplot(plot_data.comp %>% filter(!(cytokine %in% c("IL-1β", "IL-6", "IL-8", "TNF-α"))), aes(x = order, y = value, color = factor(`Project.#`, levels = c(9, 10, 15), labels = c("Proj. 9", "Proj. 10", "Proj. 15")), shape = factor(silanized, levels = c(0,1), labels = c("Silanized", "Non-silanized")))) +
+  geom_vline(xintercept = 76.5, color = "red") +
+  geom_point(size = 2) + 
+  facet_wrap(vars(cytokine), ncol = 3, scale = "free") + 
+  theme_bw()  +
+  scale_x_continuous(limits = c(-0.5, 232.5), expand = c(0.01, 0.01), breaks = seq(0, 232, 40), minor_breaks = seq(-0.5, 233.5, 1)) +
+  xlab("Visit order") +
+  ylab("") + 
+  theme(axis.title.x = element_text(face = "bold"), panel.grid.minor.x = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.y = element_blank())
+ggsave(paste(figure_path, "/Others_Comparison_LPS0_NonLPS.png", sep = ""), width = 13.5, height = 7)
+
+rm(plot_data.comp)
+```
+
+### Imputation of batch issue
+
+```{r random_forest_method_lps_200}
+set.seed(17) 
+
+# filter data frame to the LPS samples and select the LPS 200 columns
+imp_batch_issue.lps_200.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS200")) %>%
+  rename_with(~ gsub("Untransformed.LPS200_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# plot the missing data pattern
+md.pattern(imp_batch_issue.lps_200.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_batch_issue.lps_200 = missForest(imp_batch_issue.lps_200.raw_df)
+imp_batch_issue.lps_200$OOBerror
+```
+
+```{r random_forest_method_other_doses}
+set.seed(17)
+
+# filter data frame to the LPS samples and select the LPS 200 columns
+imp_batch_issue.other_doses.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains(".LPS")) %>%
+  select(order, contains("IL-1β"), contains("IL-6"), contains("IL-8"), contains("IL-10"), contains("TNF-α")) %>%
+  rename_with(~ gsub("Untransformed.", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# plot the missing data pattern
+md.pattern(imp_batch_issue.other_doses.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_batch_issue.other_doses = missForest(imp_batch_issue.other_doses.raw_df)
+imp_batch_issue.other_doses$OOBerror
+```
+
+```{r averaging_values}
+imputed_data %>%
+  filter((order >= 123) & (order <= 139)) %>%
+  select(order, contains("LPS200")) %>%
+  rename_with(~ gsub("Untransformed.LPS200_", "", .x, fixed = TRUE)) %>%
+  select(order, `IL-1β`, `IL-6`, `IL-8`, `IL-10`, `TNF-α`) %>%
+  inner_join(imp_batch_issue.lps_200$ximp %>% tibble::rownames_to_column(var = "order") %>% mutate(order = as.numeric(order)) %>% select(order, `IL-1β`, `IL-6`, `IL-8`, `IL-10`, `TNF-α`), by = c("order"), suffix = c("", ".lps_200_imp")) %>%
+  inner_join(imp_batch_issue.other_doses$ximp %>% tibble::rownames_to_column(var = "order") %>% mutate(order = as.numeric(order)) %>% select(order, `LPS200_IL-1β`, `LPS200_IL-6`, `LPS200_IL-8`, `LPS200_IL-10`, `LPS200_TNF-α`) %>% rename_with(~ gsub("LPS200_", "", .x, fixed = TRUE)), by = c("order"), suffix = c(".avg", ".other_doses_imp")) %>%
+  pivot_longer(`IL-1β.avg`:`TNF-α.other_doses_imp`) %>%
+  mutate(cytokine = str_split_i(name, "\\.", 1),
+         method = str_split_i(name, "\\.", 2)) %>%
+  group_by(method, cytokine) %>%
+  summarise(value_avg = mean(value), 
+            value_sd = sd(value)) %>%
+  mutate(value = paste(round(value_avg, 2), " (", round(value_sd, 2), ")", sep = "")) %>%
+  pivot_wider(id_cols = cytokine, names_from = method, values_from = value)
+```
+
+```{r averaging_plots}
+plot_data.batch_issue_post = plot_data %>% 
+  filter(difference == 0) %>% 
+  filter(cytokine %in% c("IL-1β", "IL-6", "IL-8", "IL-10", "TNF-α")) %>%
+  filter((order >= 123) & (order <= 139)) %>%
+  group_by(cytokine, name) %>%
+  summarise(value_avg = mean(value),
+            value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+            value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>% # calculate average for each plot
+  mutate(group = "Pre-averaging") %>%
+  bind_rows(imputed_data %>%
+              filter((order >= 123) & (order <= 139)) %>%
+              select(order, contains("LPS200")) %>%
+              rename_with(~ gsub("Untransformed.LPS200_", "", .x, fixed = TRUE)) %>%
+              select(order, `IL-1β`, `IL-6`, `IL-8`, `IL-10`, `TNF-α`) %>%
+              pivot_longer(`IL-1β`:`TNF-α`, names_to = "cytokine") %>%
+              group_by(cytokine) %>%
+              summarise(value_avg = mean(value),
+                        value_L95 = mean(value) - sd(value) / sqrt(n()) * qt(0.975, df = n() - 1),
+                        value_U95 = mean(value) + sd(value) / sqrt(n()) * qt(0.975, df = n() - 1)) %>%
+              mutate(group = "Post-averaging", name = "LPS 200"))
+
+plot_data.batch_issue_post = plot_data.batch_issue_post %>%
+  filter(name != "LPS 200") %>%
+  mutate(group = "Post-averaging") %>%
+  bind_rows(plot_data.batch_issue_post)
+
+ggplot(plot_data.batch_issue_post, aes(y = value_avg, ymin = value_L95, ymax = value_U95, x = as.numeric(gsub("LPS ", "", name)), color = group, group = group)) + 
+    geom_pointrange(size = 0.5, linewidth = 1) + 
+    geom_line(linewidth = 1) + 
+    facet_wrap(vars(cytokine), ncol = 5, scale = "free") + 
+    theme_bw() + 
+    xlab("[LPS]") +
+    ylab("[Cytokine]") + 
+    theme(axis.title = element_text(face = "bold"), legend.position = "top", panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.title = element_blank())
+ggsave(paste(figure_path, "/Batch Issue Line After Averaging.png", sep = ""), width = 14, height = 3.5)
+
+rm(imp_batch_issue.lps_200, imp_batch_issue.lps_200.raw_df, imp_batch_issue.other_doses, imp_batch_issue.other_doses.raw_df, plot_data.batch_issue_post)
+```
+
+```{r}
+plot_data.avg_method = cleaned_data %>%
+  filter((order < 123) | (order > 139)) %>%
+  filter(order > 76) %>%
+  select(order, contains("Untransformed.LPS")) %>%
+  mutate(`Averaged.LPS200_IL-10` = (`Untransformed.LPS70_IL-10` + `Untransformed.LPS600_IL-10`) / 2,
+         `Averaged.LPS200_IL-1β` = (`Untransformed.LPS70_IL-1β` + `Untransformed.LPS600_IL-1β`) / 2,
+         `Averaged.LPS200_IL-6` = (`Untransformed.LPS70_IL-6` + `Untransformed.LPS600_IL-6`) / 2,
+         `Averaged.LPS200_IL-8` = (`Untransformed.LPS70_IL-8` + `Untransformed.LPS600_IL-8`) / 2,
+         `Averaged.LPS200_TNF-α` = (`Untransformed.LPS70_TNF-α` + `Untransformed.LPS600_TNF-α`) / 2) %>%
+  select(order, `Averaged.LPS200_IL-10`, `Averaged.LPS200_IL-1β`, `Averaged.LPS200_IL-6`, `Averaged.LPS200_IL-8`, `Averaged.LPS200_TNF-α`, `Untransformed.LPS200_IL-10`, `Untransformed.LPS200_IL-1β`, `Untransformed.LPS200_IL-6`, `Untransformed.LPS200_IL-8`, `Untransformed.LPS200_TNF-α`) %>% 
+  pivot_longer(`Averaged.LPS200_IL-10`:`Untransformed.LPS200_TNF-α`) %>%
+  mutate(method = str_split_i(name, "\\.", 1), cytokine = str_split_i(name, "\\_", 2)) %>% 
+  pivot_wider(id_cols = c("order", "cytokine"), names_from = method) %>%
+  mutate(Difference = Averaged - Untransformed)
+
+p1 = ggplot(plot_data.avg_method, aes(y = order, x = Difference)) + 
+  geom_vline(xintercept = 0, color = "red") + 
+  geom_point(size = 2) +  
+  theme_bw() +
+  facet_wrap(vars(cytokine), scales = "free", ncol = 5) + 
+  #scale_x_continuous(limits = untransformed_axes[[i]]) + 
+  scale_y_continuous(limits = c(76.5,231.5), expand = c(.01,.01), breaks = seq(0,232,10), minor_breaks = seq(-0.5,232.5,1)) + 
+  xlab("[Averaged] - [Measured]") +
+  ylab("Visit order") + 
+  theme(axis.title = element_text(face = "bold"), panel.grid.minor.y = element_line(color = "#AAAAAA", size = 0.25), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor.x = element_blank())
+
+p2 = ggplot(plot_data.avg_method, aes(y = Averaged, x = Untransformed)) + 
+  geom_abline(slope = 1, intercept = 0, color = "red") + 
+  geom_point(size = 2) +  
+  theme_bw() +
+  facet_wrap(vars(cytokine), scales = "free", ncol = 5) + 
+  xlab("[Measured]") +
+  ylab("[Averaged]") + 
+  theme(axis.title = element_text(face = "bold"), legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+ggpubr::ggarrange(p1, p2, nrow = 2)
+ggsave(paste(figure_path, "/Batch Issue Averaging Validation.png", sep = ""), width = 14, height = 7)
+
+rm(plot_data.avg_method, p1, p2)
+```
+
+### Imputation for missing data
+
+```{r lps_0_imputation}
+set.seed(17)
+
+# filter data frame to the LPS samples and select the LPS 0 columns
+imp_missing_data.lps_0.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS0")) %>%
+  rename_with(~ gsub("Untransformed.LPS0_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# generate list of order numbers with missing data
+imp_missing_data.lps_0.imp_rows = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS0")) %>%
+  rename_with(~ gsub("Untransformed.LPS0_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  filter(if_any(`TNF-α`:`IFN-γ`, ~ is.na(.))) %>%
+  select(order)
+
+# plot the missing data pattern
+md.pattern(imp_missing_data.lps_0.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_missing_data.lps_0 = missForest(imp_missing_data.lps_0.raw_df)
+imp_missing_data.lps_0$OOBerror
+
+# create imputation dataframe
+imp_missing_data.lps_0.imp_df = imp_missing_data.lps_0$ximp %>%
+  tibble::rownames_to_column(var = "order") %>%
+  filter(order %in% imp_missing_data.lps_0.imp_rows$order) %>%
+  select(order, `IL-2`, `IL-12p70`)
+```
+
+```{r lps_70_imputation}
+set.seed(17)
+
+# filter data frame to the LPS samples and select the LPS 70 columns
+imp_missing_data.lps_70.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS70")) %>%
+  rename_with(~ gsub("Untransformed.LPS70_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# generate list of order numbers with missing data
+imp_missing_data.lps_70.imp_rows = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS70")) %>%
+  rename_with(~ gsub("Untransformed.LPS70_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  filter(if_any(`TNF-α`:`IFN-γ`, ~ is.na(.))) %>%
+  select(order)
+
+# plot the missing data pattern
+md.pattern(imp_missing_data.lps_70.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_missing_data.lps_70 = missForest(imp_missing_data.lps_70.raw_df)
+imp_missing_data.lps_70$OOBerror
+
+# create imputation dataframe
+imp_missing_data.lps_70.imp_df = imp_missing_data.lps_70$ximp %>%
+  tibble::rownames_to_column(var = "order") %>%
+  filter(order %in% imp_missing_data.lps_70.imp_rows$order) %>%
+  select(order, `IL-2`, `IL-12p70`)
+```
+
+```{r lps_200_imputation}
+set.seed(17)
+
+# filter data frame to the LPS samples, average values for batch issues, and select the LPS 200 columns
+imp_missing_data.lps_200.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  mutate(`Untransformed.LPS200_TNF-α` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_TNF-α` + `Untransformed.LPS600_TNF-α`) / 2, `Untransformed.LPS200_TNF-α`),
+         `Untransformed.LPS200_IL-8` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-8` + `Untransformed.LPS600_IL-8`) / 2, `Untransformed.LPS200_IL-8`),
+         `Untransformed.LPS200_IL-6` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-6` + `Untransformed.LPS600_IL-6`) / 2, `Untransformed.LPS200_IL-6`),
+         `Untransformed.LPS200_IL-10` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-10` + `Untransformed.LPS600_IL-10`) / 2, `Untransformed.LPS200_IL-10`),
+         `Untransformed.LPS200_IL-1β` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-1β` + `Untransformed.LPS600_IL-1β`) / 2, `Untransformed.LPS200_IL-1β`)) %>%
+  select(order, contains("LPS200")) %>%
+  rename_with(~ gsub("Untransformed.LPS200_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# generate list of order numbers with missing data
+imp_missing_data.lps_200.imp_rows = cleaned_data %>%
+  filter(order > 76) %>%
+  mutate(`Untransformed.LPS200_TNF-α` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_TNF-α` + `Untransformed.LPS600_TNF-α`) / 2, `Untransformed.LPS200_TNF-α`),
+         `Untransformed.LPS200_IL-8` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-8` + `Untransformed.LPS600_IL-8`) / 2, `Untransformed.LPS200_IL-8`),
+         `Untransformed.LPS200_IL-6` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-6` + `Untransformed.LPS600_IL-6`) / 2, `Untransformed.LPS200_IL-6`),
+         `Untransformed.LPS200_IL-10` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-10` + `Untransformed.LPS600_IL-10`) / 2, `Untransformed.LPS200_IL-10`),
+         `Untransformed.LPS200_IL-1β` = if_else((order >= 123) & (order <= 139), (`Untransformed.LPS70_IL-1β` + `Untransformed.LPS600_IL-1β`) / 2, `Untransformed.LPS200_IL-1β`)) %>%
+  select(order, contains("LPS200")) %>%
+  rename_with(~ gsub("Untransformed.LPS200_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  filter(if_any(`TNF-α`:`IFN-γ`, ~ is.na(.))) %>%
+  select(order)
+
+# plot the missing data pattern
+md.pattern(imp_missing_data.lps_200.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_missing_data.lps_200 = missForest(imp_missing_data.lps_200.raw_df)
+imp_missing_data.lps_200$OOBerror
+
+# create imputation dataframe
+imp_missing_data.lps_200.imp_df = imp_missing_data.lps_200$ximp %>%
+  tibble::rownames_to_column(var = "order") %>%
+  filter(order %in% imp_missing_data.lps_200.imp_rows$order) %>%
+  select(order, `IL-2`, `IL-12p70`)
+```
+
+```{r lps_600_imputation}
+set.seed(17)
+
+# filter data frame to the LPS samples and select the LPS 600 columns
+imp_missing_data.lps_600.raw_df = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS600")) %>%
+  rename_with(~ gsub("Untransformed.LPS600_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# generate list of order numbers with missing data
+imp_missing_data.lps_600.imp_rows = cleaned_data %>%
+  filter(order > 76) %>%
+  select(order, contains("LPS600")) %>%
+  rename_with(~ gsub("Untransformed.LPS600_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  filter(if_any(`TNF-α`:`IFN-γ`, ~ is.na(.))) %>%
+  select(order)
+
+# plot the missing data pattern
+md.pattern(imp_missing_data.lps_600.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_missing_data.lps_600 = missForest(imp_missing_data.lps_600.raw_df)
+imp_missing_data.lps_600$OOBerror
+
+# create imputation dataframe
+imp_missing_data.lps_600.imp_df = imp_missing_data.lps_600$ximp %>%
+  tibble::rownames_to_column(var = "order") %>%
+  filter(order %in% imp_missing_data.lps_600.imp_rows$order) %>%
+  select(order, `IL-4`, `IL-2`, `IL-12p70`)
+```
+
+```{r non_lps_imputation}
+set.seed(17)
+
+# filter data frame to the LPS samples and select the non-LPS columns
+imp_missing_data.non_lps.raw_df = cleaned_data %>%
+  filter(order <= 76) %>%
+  select(order, contains("NonLPS")) %>%
+  rename_with(~ gsub("Untransformed.NonLPS_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  column_to_rownames(var = "order")
+
+# generate list of order numbers with missing data
+imp_missing_data.non_lps.imp_rows = cleaned_data %>%
+  filter(order <= 76) %>%
+  select(order, contains("NonLPS")) %>%
+  rename_with(~ gsub("Untransformed.NonLPS_", "", .x, fixed = TRUE)) %>% # clean up the column names
+  filter(if_any(`TNF-α`:`IFN-γ`, ~ is.na(.))) %>%
+  select(order)
+
+# plot the missing data pattern
+md.pattern(imp_missing_data.non_lps.raw_df, rotate.names = TRUE)
+
+# create imputation object and print the OOB error
+imp_missing_data.non_lps = missForest(imp_missing_data.non_lps.raw_df)
+imp_missing_data.non_lps$OOBerror
+
+# create imputation dataframe
+imp_missing_data.non_lps.imp_df = imp_missing_data.non_lps$ximp %>%
+  tibble::rownames_to_column(var = "order") %>%
+  filter(order %in% imp_missing_data.non_lps.imp_rows$order) %>%
+  select(order, `IL-2`, `IL-1β`, `IL-12p70`)
+```
+
+```{r remove_imputation_variables}
+# keep if needed, but this keeps the environment clean
+rm(imp_missing_data.lps_0, imp_missing_data.lps_0.imp_df, imp_missing_data.lps_0.imp_rows, imp_missing_data.lps_0.raw_df, imp_missing_data.lps_200, imp_missing_data.lps_200.imp_df, imp_missing_data.lps_200.imp_rows, imp_missing_data.lps_200.raw_df, imp_missing_data.lps_600, imp_missing_data.lps_600.imp_df, imp_missing_data.lps_600.imp_rows, imp_missing_data.lps_600.raw_df, imp_missing_data.lps_70, imp_missing_data.lps_70.imp_df, imp_missing_data.lps_70.imp_rows, imp_missing_data.lps_70.raw_df, imp_missing_data.non_lps, imp_missing_data.non_lps.imp_df, imp_missing_data.non_lps.imp_rows, imp_missing_data.non_lps.raw_df)
+```
+
+### Preliminary factor analysis
+
+#### Projects 9 & 10 LPS 0
+
+```{r factor_analysis_project_9_10_initial_tests}
+# filter dataframe to project 9 and 10 data
+factor_analysis.proj_9_10.df = imputed_data %>%
+  filter(order > 76) %>%
+  filter((`Project.#` == 9) | (`Project.#` == 10)) %>%
+  select(starts_with("Untransformed.LPS0_")) %>%
+  rename_with(~ gsub("Untransformed.LPS0_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.proj_9_10.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.proj_9_10.df))
+cortest.bartlett(cor(factor_analysis.proj_9_10.df), n = nrow(factor_analysis.proj_9_10.df))
+```
+
+```{r factor_analysis_project_9_10_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.proj_9_10.scree_plot = fa(factor_analysis.proj_9_10.df, factors = ncol(factor_analysis.proj_9_10.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.proj_9_10.scree_plot$e.values)
+factor_analysis.proj_9_10.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.proj_9_10.scree_plot$e.values
+)
+
+ggplot(factor_analysis.proj_9_10.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_project_9_10_main_block}
+factor_analysis.proj_9_10.factor_analysis = fa(factor_analysis.proj_9_10.df, nfactors = 2, fm = "ml", rotate = "varimax")
+print(factor_analysis.proj_9_10.factor_analysis)
+
+fa.diagram(factor_analysis.proj_9_10.factor_analysis)
+```
+
+#### Project 15 LPS 0
+
+```{r factor_analysis_project_15_initial_tests}
+# filter dataframe to project 15 data
+factor_analysis.proj_15.df = imputed_data %>%
+  filter(order > 76) %>%
+  filter(`Project.#` == 15) %>%
+  select(starts_with("Untransformed.LPS0_")) %>%
+  rename_with(~ gsub("Untransformed.LPS0_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.proj_15.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.proj_15.df))
+cortest.bartlett(cor(factor_analysis.proj_15.df), n = nrow(factor_analysis.proj_15.df))
+```
+
+```{r factor_analysis_project_15_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.proj_15.scree_plot = fa(factor_analysis.proj_15.df, factors = ncol(factor_analysis.proj_15.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.proj_15.scree_plot$e.values)
+factor_analysis.proj_15.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.proj_15.scree_plot$e.values
+)
+
+ggplot(factor_analysis.proj_15.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_project_15_main_block}
+factor_analysis.proj_15.factor_analysis = fa(factor_analysis.proj_15.df, nfactors = 2, fm = "ml", rotate = "varimax")
+print(factor_analysis.proj_15.factor_analysis)
+
+fa.diagram(factor_analysis.proj_15.factor_analysis)
+```
+
+#### Factor loading comparison
+
+```{r factor_loading_project_9_10}
+factor_analysis.proj_9_10.factor_loadings = data.frame(unclass(factor_analysis.proj_9_10.factor_analysis$loadings), row.names = rownames(factor_analysis.proj_9_10.factor_analysis$model))
+colnames(factor_analysis.proj_9_10.factor_loadings) = c("ML1", "ML2")
+factor_analysis.proj_9_10.factor_loadings$cytokine = rownames(factor_analysis.proj_9_10.factor_loadings)
+
+ggplot(data = factor_analysis.proj_9_10.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/Project_9_10_LPS0_Factor_Loading.png", sep = ""), width = 5, height = 5)
+```
+
+```{r factor_loading_project_15}
+factor_analysis.proj_15.factor_loadings = data.frame(unclass(factor_analysis.proj_15.factor_analysis$loadings), row.names = rownames(factor_analysis.proj_15.factor_analysis$model))
+colnames(factor_analysis.proj_15.factor_loadings) = c("ML1", "ML2")
+factor_analysis.proj_15.factor_loadings$cytokine = rownames(factor_analysis.proj_15.factor_loadings)
+
+ggplot(data = factor_analysis.proj_15.factor_loadings, aes(x = ML2, y = ML1, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/Project_15_LPS0_Factor_Loading.png", sep = ""), width = 5, height = 5)
+```
+
+```{r remove_extra_variables}
+rm(factor_analysis.proj_15.df, factor_analysis.proj_15.factor_analysis, factor_analysis.proj_15.factor_loadings, factor_analysis.proj_15.scree_plot, factor_analysis.proj_9_10.df, factor_analysis.proj_9_10.factor_analysis, factor_analysis.proj_9_10.factor_loadings, factor_analysis.proj_9_10.scree_plot, n_factors)
+```
+
+### Factor analysis across LPS doses
+
+#### LPS 0
+
+```{r factor_analysis_lps_0_initial_tests}
+factor_analysis.lps_0.df = imputed_data %>%
+  filter(order > 76) %>%
+  column_to_rownames(var = "order") %>%
+  select(starts_with("Untransformed.LPS0_")) %>%
+  rename_with(~ gsub("Untransformed.LPS0_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.lps_0.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.lps_0.df))
+cortest.bartlett(cor(factor_analysis.lps_0.df), n = nrow(factor_analysis.lps_0.df))
+```
+
+```{r factor_analysis_lps_0_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.lps_0.scree_plot = fa(factor_analysis.lps_0.df, factors = ncol(factor_analysis.lps_0.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.lps_0.scree_plot$e.values)
+factor_analysis.lps_0.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.lps_0.scree_plot$e.values
+)
+
+ggplot(factor_analysis.lps_0.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_lps_0_main_block}
+factor_analysis.lps_0.factor_analysis = fa(factor_analysis.lps_0.df, nfactors = 3, fm = "ml", rotate = "varimax")
+print(factor_analysis.lps_0.factor_analysis)
+
+fa.diagram(factor_analysis.lps_0.factor_analysis)
+```
+
+#### LPS 70
+
+```{r factor_analysis_lps_70_initial_tests}
+factor_analysis.lps_70.df = imputed_data %>%
+  filter(order > 76) %>%
+  column_to_rownames(var = "order") %>%
+  select(starts_with("Untransformed.LPS70_")) %>%
+  rename_with(~ gsub("Untransformed.LPS70_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.lps_70.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.lps_70.df))
+cortest.bartlett(cor(factor_analysis.lps_70.df), n = nrow(factor_analysis.lps_70.df))
+```
+
+```{r factor_analysis_lps_70_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.lps_70.scree_plot = fa(factor_analysis.lps_70.df, factors = ncol(factor_analysis.lps_70.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.lps_70.scree_plot$e.values)
+factor_analysis.lps_70.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.lps_70.scree_plot$e.values
+)
+
+ggplot(factor_analysis.lps_70.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_lps_70_main_block}
+factor_analysis.lps_70.factor_analysis = fa(factor_analysis.lps_70.df, nfactors = 2, fm = "ml", rotate = "varimax")
+print(factor_analysis.lps_70.factor_analysis)
+
+fa.diagram(factor_analysis.lps_70.factor_analysis)
+```
+
+#### LPS 200
+
+```{r factor_analysis_lps_200_initial_tests}
+factor_analysis.lps_200.df = imputed_data %>%
+  filter(order > 76) %>%
+  column_to_rownames(var = "order") %>%
+  select(starts_with("Untransformed.LPS200_")) %>%
+  rename_with(~ gsub("Untransformed.LPS200_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.lps_200.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.lps_200.df))
+cortest.bartlett(cor(factor_analysis.lps_200.df), n = nrow(factor_analysis.lps_200.df))
+```
+
+```{r factor_analysis_lps_200_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.lps_200.scree_plot = fa(factor_analysis.lps_200.df, factors = ncol(factor_analysis.lps_200.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.lps_200.scree_plot$e.values)
+factor_analysis.lps_200.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.lps_200.scree_plot$e.values
+)
+
+ggplot(factor_analysis.lps_200.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_lps_200_main_block}
+factor_analysis.lps_200.factor_analysis = fa(factor_analysis.lps_200.df, nfactors = 2, fm = "ml", rotate = "varimax")
+print(factor_analysis.lps_200.factor_analysis)
+
+fa.diagram(factor_analysis.lps_200.factor_analysis)
+```
+
+#### LPS 600
+
+```{r factor_analysis_lps_600_initial_tests}
+factor_analysis.lps_600.df = imputed_data %>%
+  filter(order > 76) %>%
+  column_to_rownames(var = "order") %>%
+  select(starts_with("Untransformed.LPS600_")) %>%
+  rename_with(~ gsub("Untransformed.LPS600_", "", .))
+
+# generate correlation plot for dataframe
+corrplot::corrplot(cor(factor_analysis.lps_600.df))
+
+# conduct Kaiser-Meyer-Olkin factor adequacy and Bartlett correlation tests
+KMO(cor(factor_analysis.lps_600.df))
+cortest.bartlett(cor(factor_analysis.lps_600.df), n = nrow(factor_analysis.lps_600.df))
+```
+
+```{r factor_analysis_lps_600_scree_plot}
+# generate Scree plot to determine number of factors
+factor_analysis.lps_600.scree_plot = fa(factor_analysis.lps_600.df, factors = ncol(factor_analysis.lps_600.df), fm = "ml", rotate = "varimax")
+n_factors = length(factor_analysis.lps_600.scree_plot$e.values)
+factor_analysis.lps_600.scree_plot = data.frame(
+  factor_n = as.factor(1:n_factors),
+  eigenvalue = factor_analysis.lps_600.scree_plot$e.values
+)
+
+ggplot(factor_analysis.lps_600.scree_plot, aes(x = factor_n, y = eigenvalue, group = 1)) +
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  theme_classic() + 
+  geom_hline(yintercept = 1, color = "red", linewidth = 1) + 
+  xlab("Number of factors") + 
+  ylab("Initial eigenvalue") +
+  scale_x_discrete(expand = c(0,0)) + 
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r factor_analysis_lps_600_main_block}
+factor_analysis.lps_600.factor_analysis = fa(factor_analysis.lps_600.df, nfactors = 2, fm = "ml", rotate = "varimax")
+print(factor_analysis.lps_600.factor_analysis)
+
+fa.diagram(factor_analysis.lps_600.factor_analysis)
+```
+
+#### Factor loadings
+
+```{r factor_loading_lps_0}
+factor_analysis.lps_0.factor_loadings = data.frame(unclass(factor_analysis.lps_0.factor_analysis$loadings), row.names = rownames(factor_analysis.lps_0.factor_analysis$model))
+colnames(factor_analysis.lps_0.factor_loadings) = c("ML1", "ML2", "ML3")
+factor_analysis.lps_0.factor_loadings$cytokine = rownames(factor_analysis.lps_0.factor_loadings)
+
+p1 = ggplot(data = factor_analysis.lps_0.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+p2 = ggplot(data = factor_analysis.lps_0.factor_loadings, aes(x = ML1, y = ML3, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggpubr::ggarrange(p1, p2)
+ggsave(paste(figure_path, "/LPS0_Factor_Loading.png", sep = ""), width = 10, height = 5)
+```
+
+```{r factor_loading_lps_70}
+factor_analysis.lps_70.factor_loadings = data.frame(unclass(factor_analysis.lps_70.factor_analysis$loadings), row.names = rownames(factor_analysis.lps_70.factor_analysis$model))
+colnames(factor_analysis.lps_70.factor_loadings) = c("ML1", "ML2")
+factor_analysis.lps_70.factor_loadings$cytokine = rownames(factor_analysis.lps_70.factor_loadings)
+
+ggplot(data = factor_analysis.lps_70.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/LPS70_Factor_Loading.png", sep = ""), width = 5, height = 5)
+```
+
+```{r factor_loading_lps_200}
+factor_analysis.lps_200.factor_loadings = data.frame(unclass(factor_analysis.lps_200.factor_analysis$loadings), row.names = rownames(factor_analysis.lps_200.factor_analysis$model))
+colnames(factor_analysis.lps_200.factor_loadings) = c("ML1", "ML2")
+factor_analysis.lps_200.factor_loadings$cytokine = rownames(factor_analysis.lps_200.factor_loadings)
+
+ggplot(data = factor_analysis.lps_200.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/LPS200_Factor_Loading.png", sep = ""), width = 5, height = 5)
+```
+
+```{r factor_loading_lps_600}
+factor_analysis.lps_600.factor_loadings = data.frame(unclass(factor_analysis.lps_600.factor_analysis$loadings), row.names = rownames(factor_analysis.lps_600.factor_analysis$model))
+colnames(factor_analysis.lps_600.factor_loadings) = c("ML1", "ML2")
+factor_analysis.lps_600.factor_loadings$cytokine = rownames(factor_analysis.lps_600.factor_loadings)
+
+ggplot(data = factor_analysis.lps_600.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α")))) + 
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  scale_x_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(-1, 1), expand = c(0, 0)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/LPS600_Factor_Loading.png", sep = ""), width = 5, height = 5)
+```
+
+```{r all_lps_factor_loadings}
+factor_analysis.all_lps.factor_loadings = factor_analysis.lps_0.factor_loadings %>%
+  mutate(dose = "LPS 0") %>%
+  bind_rows(factor_analysis.lps_70.factor_loadings %>% mutate(dose = "LPS 70")) %>%
+  bind_rows(factor_analysis.lps_200.factor_loadings %>% mutate(dose = "LPS 200")) %>%
+  bind_rows(factor_analysis.lps_600.factor_loadings %>% mutate(dose = "LPS 600")) %>%
+  mutate(cytokine = factor(cytokine, c("IFN-γ", "IL-1β", "IL-2", "IL-4", "IL-6", "IL-8", "IL-10", "IL-12p70", "IL-13", "TNF-α"))) %>%
+  mutate(dose = factor(dose, c("LPS 0", "LPS 70", "LPS 200", "LPS 600")))
+
+ggplot(data = factor_analysis.all_lps.factor_loadings, aes(x = ML1, y = ML2, label = cytokine, color = cytokine)) +
+  geom_text_repel(fontface = "bold", key_glyph = "blank") + 
+  geom_point(size = 3) + 
+  scale_color_manual(values = cytokine_colors, drop = FALSE) + 
+  facet_wrap(vars(dose)) +
+  scale_x_continuous(limits = c(0, 1), expand = c(0.1, 0.1)) + 
+  scale_y_continuous(limits = c(0, 1), expand = c(0.1, 0.1)) + 
+  geom_hline(yintercept = 0, linetype = 2) + 
+  geom_vline(xintercept = 0, linetype = 2) + 
+  theme_classic() + 
+  theme(aspect.ratio = 1, legend.position = "none", legend.title = element_blank())
+
+ggsave(paste(figure_path, "/All_LPS_Factor_Loading.png", sep = ""), width = 6, height = 6)
+```
+
+#### Export of factor scores
+
+```{r compilation_factor_scores}
+factor_scores_df = data.frame(factor_analysis.lps_0.factor_analysis$scores) %>%
+  tibble::rownames_to_column(var = "order") %>%
+  select(order, ML1, ML2, ML3) %>%
+  rename_with(~ paste("LPS0_", ., sep = ""), starts_with("ML")) %>%
+  left_join(data.frame(factor_analysis.lps_0.factor_analysis$scores) %>%
+              tibble::rownames_to_column(var = "order") %>%
+              select(order, ML1, ML2) %>%
+              rename_with(~ paste("LPS70_", ., sep = ""), starts_with("ML"))) %>%
+  left_join(data.frame(factor_analysis.lps_0.factor_analysis$scores) %>%
+              tibble::rownames_to_column(var = "order") %>%
+              select(order, ML1, ML2) %>%
+              rename_with(~ paste("LPS200_", ., sep = ""), starts_with("ML"))) %>%
+  left_join(data.frame(factor_analysis.lps_0.factor_analysis$scores) %>%
+              tibble::rownames_to_column(var = "order") %>%
+              select(order, ML1, ML2) %>%
+              rename_with(~ paste("LPS600_", ., sep = ""), starts_with("ML")))
+
+#write.xlsx(factor_scores_df, paste(file_path, "factor_scores.xlsx", sep = "/"))
+```
+
+```{r remove_extra_variables}
+rm(factor_analysis.all_lps.factor_loadings, factor_analysis.lps_0.df, factor_analysis.lps_0.factor_analysis, factor_analysis.lps_0.factor_loadings, factor_analysis.lps_0.scree_plot, factor_analysis.lps_200.df, factor_analysis.lps_200.factor_analysis, factor_analysis.lps_200.factor_loadings, factor_analysis.lps_200.scree_plot, factor_analysis.lps_600.df, factor_analysis.lps_600.factor_analysis, factor_analysis.lps_600.factor_loadings, factor_analysis.lps_600.scree_plot, factor_analysis.lps_70.df, factor_analysis.lps_70.factor_analysis, factor_analysis.lps_70.factor_loadings, factor_analysis.lps_70.scree_plot, factor_scores_df, p1, p2, n_factors)
+```
+
+### Covariates available
+
+```{r data_preparation}
+cleaned_data.covariate = cleaned_data %>%
+  mutate(cohort = if_else(order > 76, "LPS", "Non-LPS")) %>%
+  mutate(gender = factor(gender, levels = c(2,1), labels = c("F", "M"))) %>%
+  group_by(Subject.ID) %>%
+  mutate(row_num = row_number()) %>%
+  filter(row_num == 1)
+```
+
+```{r visit_breakdown}
+View(cleaned_data %>%
+  mutate(cohort = if_else(order > 76, "LPS", "Non-LPS")) %>%
+  group_by(Subject.ID) %>%
+  summarise(n = n_distinct(cohort)) %>% 
+  mutate(cohort = if_else(n > 1, "Non-LPS/LPS", NA)) %>%
+  select(-n) %>%
+  right_join(cleaned_data, by = "Subject.ID") %>%
+  mutate(cohort = if_else(is.na(cohort), if_else(order > 76, "LPS", "Non-LPS"), cohort)) %>%
+  group_by(Subject.ID, cohort) %>%
+  summarise(num_visits = n()) %>%
+  group_by(cohort, num_visits) %>%
+  summarise(num_subjects = n()) %>%
+  pivot_wider(id_cols = cohort, names_from = num_visits, names_prefix = "V", values_from = num_subjects, values_fill = 0))
+```
+
+```{r demographics_info}
+cleaned_data.covariate %>%
+  group_by(gender) %>%
+  summarise(count = n())
+```
+
+```{r age}
+ggplot(cleaned_data.covariate, aes(x = approx_age, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 5, boundary = 30) + 
+  theme_bw() + 
+  xlab("Age") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+ggsave(paste(figure_path, "/Covariates/Age.png", sep = ""), width = 5.5, height = 6.5)
+```
+
+```{r body_measurements}
+p1 = ggplot(cleaned_data.covariate, aes(x = body_mass_index, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 2.5, boundary = 30) + 
+  theme_bw() + 
+  xlab("Body-mass index") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+p2 = ggplot(cleaned_data.covariate, aes(x = waist_hip_ratio, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 0.025, boundary = 1) + 
+  theme_bw() + 
+  xlab("Waist-hip ratio") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+p3 = ggpubr::ggarrange(p1, p2)
+
+p4 = ggplot(cleaned_data.covariate, aes(x = systolic_blood_pressure, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 5, boundary = 120) + 
+  theme_bw() + 
+  xlab("Systolic blood pressure") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+p5 = ggplot(cleaned_data.covariate, aes(x = diastolic_blood_pressure, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 5, boundary = 120) + 
+  theme_bw() + 
+  xlab("Diastolic blood pressure") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+p6 = ggplot(cleaned_data.covariate, aes(x = pulse_rate, color = gender, fill = gender)) +
+  geom_histogram(alpha = 0.5, binwidth = 2.5, boundary = 120) + 
+  theme_bw() + 
+  xlab("Pulse rate") + 
+  ylab("# subjects") + 
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "none")
+
+p7 = ggpubr::ggarrange(p4, p5, p6, nrow = 1)
+
+ggpubr::ggarrange(p3, p7, nrow = 2)
+
+ggsave(paste(figure_path, "/Covariates/Body Measurements.png", sep = ""), width = 13.5, height = 6.5)
+```
+
+```{r medications}
+cleaned_data.covariate.meds = cleaned_data.covariate %>%
+  select(Subject.ID, caffeine_use:steroid_rx_use) %>%
+  pivot_longer(caffeine_use:steroid_rx_use) %>%
+  mutate(name = case_when(
+    name == "blood_pressure_rx_use" ~ "Medication for high blood pressure",
+    name == "statin_use" ~ "Statin",
+    name == "heart_rx_use" ~ "Heart disease medication",
+    name == "diabetes_rx_use" ~ "Diabetes medication", 
+    name == "psych_rx_use" ~ "Psychiatric medication",
+    name == "current_antid" ~ "Antidepressants",
+    name == "current_mood" ~ "Mood stabilizers",
+    name == "current_antipsy" ~ "Anti-psychotics",
+    name == "pain_rx_use" ~ "Pain medication",
+    name == "sleep_rx_use" ~ "Sleep medication", 
+    name == "antibiotic_use" ~ "Antibiotics",
+    name == "prostate_rx_use" ~ "Prostate medication",
+    name == "allergies_rx_use" ~ "Allergy medication",
+    name == "steroid_rx_use" ~ "Steroid medication", 
+    name == "caffeine_use" ~ "Caffeine",
+    name == "nicotine_use" ~ "Nicotine",
+    TRUE ~ name
+  ), value = if_else(is.na(value), "NA", as.character(value))) %>%
+  mutate(value = factor(value, c("NA", "0", "1"), labels = c("Missing", "No", "Yes")))
+
+ggplot(cleaned_data.covariate.meds, aes(y = name, fill = value)) +
+  geom_bar() +
+  scale_x_continuous(expand = c(0, 0)) + 
+  scale_y_discrete(limits = rev) + 
+  theme_classic() + 
+  xlab("# subjects") + 
+  ylab("") + 
+  scale_fill_manual(values = c("#9E9E9E", "#F8766D", "#00BA38")) + 
+  theme(legend.title = element_blank(), panel.grid = element_blank(), legend.position = "top")
+
+ggsave(paste(figure_path, "/Covariates/Medications.png", sep = ""), width = 10, height = 5)
+```
+
+```{r lifetime_pcl}
+p1 = ggplot(cleaned_data.covariate, aes(x = pcl_total)) + 
+  geom_histogram(breaks = seq(0, 81, 3), color = "#F8766D", fill = "#F8766D", alpha = 0.5, size = 1.5) + 
+  theme_classic() + 
+  geom_vline(xintercept = 33, size = 1.5, color = "#9E9E9E") +
+  xlab("Lifetime PCL total") + 
+  ylab("# subjects") + 
+  scale_x_continuous(limits = c(0,81), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) + 
+  geom_text(x = 0 + 1, y = 10, label = "No PTSD", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 33 + 1, y = 10, label = "PTSD", hjust = 0, vjust = 1, size = 3) +
+  ggtitle("Lifetime PCL total (PTSD)")
+```
+
+```{r monthly_pcl}
+p2 = ggplot(cleaned_data.covariate, aes(x = monthly_pcl_total)) + 
+  geom_histogram(breaks = seq(0, 81, 3), color = "#A3A500", fill = "#A3A500", alpha = 0.5, size = 1.5) + 
+  theme_classic() + 
+  geom_vline(xintercept = 33, size = 1.5, color = "#9E9E9E") +
+  xlab("Monthly PCL total") + 
+  ylab("# subjects") + 
+  scale_x_continuous(limits = c(0,81), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) + 
+  geom_text(x = 0 + 1, y = 10, label = "No PTSD", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 33 + 1, y = 10, label = "PTSD", hjust = 0, vjust = 1, size = 3) +
+  ggtitle("Monthly PCL total (PTSD)")
+```
+
+```{r phq9}
+p3 = ggplot(cleaned_data.covariate, aes(x = phq9_total)) + 
+  geom_histogram(breaks = seq(0, 29, 1), color = "#00BF7D", fill = "#00BF7D", alpha = 0.5, size = 1.5) + 
+  theme_classic() + 
+  geom_vline(xintercept = c(0,6,11,16,21), size = 1.5, color = "#9E9E9E") +
+  xlab("PHQ-9 total") + 
+  ylab("# subjects") + 
+  scale_x_continuous(limits = c(0,29), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0,8), expand = c(0,0)) + 
+  geom_text(x = 0 + 0.2, y = 8, label = "Minimal", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 6 + 0.2, y = 8, label = "Mild", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 11 + 0.2, y = 8, label = "Moderate", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 16 + 0.2, y = 8, label = "Moderately\nsevere", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 21 + 0.2, y = 8, label = "Severe", hjust = 0, vjust = 1, size = 3) + 
+  ggtitle("PHQ-9 total (Depression)")
+```
+
+```{r gad7}
+p4 = ggplot(cleaned_data.covariate, aes(x = phq15_score_total)) + 
+  geom_histogram(breaks = seq(0, 22, 1), color = "#00B0F6", fill = "#00B0F6", alpha = 0.5, size = 1.5) + 
+  theme_classic() + 
+  geom_vline(xintercept = c(5,10,15), size = 1.5, color = "#9E9E9E") +
+  xlab("GAD-7 total") + 
+  ylab("# subjects") + 
+  scale_x_continuous(limits = c(0,22), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0,12), expand = c(0,0)) + 
+  geom_text(x = 0 + 0.2, y = 12, label = "None", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 5 + 0.2, y = 12, label = "Mild", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 10 + 0.2, y = 12, label = "Moderate", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 15 + 0.2, y = 12, label = "Severe", hjust = 0, vjust = 1, size = 3) +
+  ggtitle("GAD-7 total (Anxiety)")
+```
+
+```{r phq15}
+p5 = ggplot(cleaned_data.covariate, aes(x = phq15_score_total)) + 
+  geom_histogram(breaks = seq(0, 31, 1), color = "#E76BF3", fill = "#E76BF3", alpha = 0.5, size = 1.5) + 
+  theme_classic() + 
+  geom_vline(xintercept = c(5,10,15), size = 1.5, color = "#9E9E9E") +
+  xlab("PHQ-15 total") + 
+  ylab("# subjects") + 
+  scale_x_continuous(limits = c(0,31), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0,12), expand = c(0,0)) + 
+  geom_text(x = 0 + 0.2, y = 12, label = "Minimal", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 5 + 0.2, y = 12, label = "Low", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 10 + 0.2, y = 12, label = "Medium", hjust = 0, vjust = 1, size = 3) + 
+  geom_text(x = 15 + 0.2, y = 12, label = "High", hjust = 0, vjust = 1, size = 3) +
+  ggtitle("PHQ-15 total (Pain)")
+```
+
+```{r plots}
+ggpubr::ggarrange(p1, p2, p3, p4, p5, ncol = 3, nrow = 2)
+ggsave(paste(figure_path, "/Covariates/Phenotypes.png", sep = ""), width = 14, height = 7)
+```

@@ -1,0 +1,679 @@
+---
+title: "ML1"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+setwd("/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline")
+
+#Load Libraries
+```{r libraries}
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(missForest)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(rmarkdown)
+
+library(corrr)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(magrittr)
+library(nFactors)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(lme4)
+library(lmerTest)
+library(nlme)
+
+library(effects)
+library(ggpubr)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+
+```
+
+
+### Cytokine data are imputed (or not), have been LN transformed; one outlier removed from ML1, 0-1 scaled with NonLPS and LPS0 combined, Composit scores created, In same file along with relevant info and covariates of interest
+###Mood variables are composite scores as well
+### this only includes the LPS0 and nonLPS 'doses'
+```{r import data}
+IMPcyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "IMPcyto_Mood_CoVar") 
+NONimpCyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "NonimpCyto_Mood_CoVar")
+
+
+#convert character to numeric
+IMPcyto[,c(32:42, 44:47)] <- lapply(IMPcyto[,c(32:42, 44:47)], as.numeric)
+str(IMPcyto)
+
+str(NONimpCyto)
+```
+
+#SKIP FOR NOW
+```{r update relevant variables to factors}
+# #copy dataframes so I don't mess them up
+# IMPcyto2 <- IMPcyto
+# NONimpCyto2 <- NONimpCyto
+# 
+# #update variables to factors
+# #df[, c(2:5)] <- lapply(df[, c(2:5)], as.numeric)
+# 
+# IMPcyto2[,c(6:11,29)] <- lapply(IMPcyto2[,c(6:11,29)], as.factor)
+# NONimpCyto2[,c(6:11,29)] <- lapply(NONimpCyto2[,c(6:11,29)], as.factor)
+# 
+# str(IMPcyto2)
+# str(NONimpCyto2)
+
+```
+
+#SKIP
+```{r identify the number of "yes" and "no" for the drug use variables}
+# 
+# IMPcyto2[,c(5)] <- lapply(IMPcyto2[,c(5)], as.character)
+# 
+# #new function
+# count_zeros_ones <- function(col) {
+#   zeros <- sum(col == 0, na.rm = TRUE)
+#   ones <- sum(col == 1, na.rm = TRUE)
+#   return(c(zeros, ones))
+# }
+# 
+# #use the function
+# counts <- sapply(IMPcyto2[,c(31:47)], count_zeros_ones)
+# 
+# #create a table with results
+# result_table <- data.frame(
+#   Column = colnames(IMPcyto2[,c(31:47)]),
+#   No = counts[1,],
+#   Yes = counts[2,]
+# )
+# 
+# result_table
+```
+
+#ML1, Imputed, experimental variables and drugs
+```{r ML1 vs all variables using imputed data}
+
+#Experimental Variables
+Model1 <- lmer(ML1 ~ Project + Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = IMPcyto)
+summary(Model1)
+# Project         0.024168   0.007208  97.346963   3.353  0.00114 **
+# Visit_Number   -0.003788   0.005404 130.019169  -0.701  0.48460   
+# Plate           0.001843   0.004826  88.182822   0.382  0.70350   
+# LPS_DOSE       -0.009488   0.012706 216.097071  -0.747  0.45603   
+# silanized_LPS  -0.034988   0.015750 139.228097  -2.221  0.02794 * 
+
+Model1b <- lmer(ML1 ~  Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID) + (1|Project),
+                        data = IMPcyto)
+summary(Model1b)
+#silanized LPS not significant once project is accounted for?
+
+# Move significant experimental variables to random; Add biological Variables
+Model2 <- lmer(ML1 ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + ApproxAge +
+                 (1 | Subject_ID) + (1|Project),
+               data = IMPcyto)
+summary(Model2)
+# MeanBMI      7.221e-04  2.427e-03  9.558e+01   0.298  0.76673   
+# SystolicBP   2.463e-04  5.644e-04  1.660e+02   0.436  0.66315   
+# DiastolicBP -1.386e-03  9.319e-04  1.687e+02  -1.487  0.13887   
+# PulseRate   -7.004e-04  5.576e-04  1.945e+02  -1.256  0.21059   
+# Gender2     -3.098e-02  2.734e-02  9.442e+01  -1.133  0.25990   
+# ApproxAge   -6.101e-04  8.994e-04  9.632e+01  -0.678  0.49919  
+
+
+#Remove ns variables, add medications
+Model3 <- lmer(ML1 ~ Antidepressant_Rx + BP_Rx + caffeine_today + Mood_Rx + nicotine_today + Pain_Rx + Psych_Rx + 
+                 Sleep_Rx + Statin_Rx +
+                  (1 | Subject_ID) + (1|Project),
+               data = IMPcyto)
+summary(Model3)
+# Antidepressant_Rx  -0.003033   0.014477 177.349421  -0.209   0.8343  
+# BP_Rx               0.008013   0.020584 202.275927   0.389   0.6975  
+# caffeine_today     -0.017173   0.012297 161.845489  -1.397   0.1645  
+# Mood_Rx            -0.027923   0.021827 186.436551  -1.279   0.2024  
+# nicotine_today     -0.043224   0.020226 201.311880  -2.137   0.0338 *
+# Pain_Rx            -0.009643   0.012925 165.842246  -0.746   0.4567  
+# Psych_Rx           -0.006877   0.014515 176.342577  -0.474   0.6362  
+# Sleep_Rx            0.003752   0.013716 180.836987   0.274   0.7847  
+# Statin_Rx           0.001698   0.026062 206.504669   0.065   0.9481 
+
+
+#Remove ns variables, add mood factors
+Model4 <- lmer(ML1 ~ nicotine_today +
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + PTSD + Suicide +
+                 (1 | Subject_ID) + (1|Project),
+               data = IMPcyto)
+summary(Model4)
+
+# nicotine_today  -3.690e-02  2.057e-02  2.097e+02  -1.794   0.0742 .
+# Anhedonia        1.488e-02  1.358e-02  1.839e+02   1.096   0.2746  
+# Anxiety          1.401e-02  1.325e-02  1.717e+02   1.057   0.2921  
+# PTSD            -1.564e-02  1.605e-02  1.944e+02  -0.974   0.3312  
+# GI               2.554e-04  7.997e-03  1.798e+02   0.032   0.9746  
+# Positive_Affect -8.190e-03  1.102e-02  2.033e+02  -0.743   0.4583  
+# Sleep           -4.529e-03  1.285e-02  1.915e+02  -0.353   0.7248  
+# Somatic_Anxiety -3.795e-03  1.022e-02  1.682e+02  -0.371   0.7107  
+# Suicide          4.500e-03  9.516e-03  1.879e+02   0.473   0.6368 
+
+Model4b <- lmer(ML1 ~ #remove nicotine (and silanized)
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + PTSD + Suicide +
+                 (1 | Subject_ID) + (1|Project),
+               data = IMPcyto)
+summary(Model4b)
+
+# Anhedonia        1.561e-02  1.358e-02  1.842e+02   1.149   0.2519  
+# Anxiety          1.354e-02  1.327e-02  1.719e+02   1.021   0.3088  
+# PTSD            -1.730e-02  1.599e-02  1.940e+02  -1.082   0.2806  
+# GI               3.119e-04  8.006e-03  1.795e+02   0.039   0.9690  
+# Positive_Affect -8.205e-03  1.103e-02  2.034e+02  -0.744   0.4577  
+# Sleep           -4.051e-03  1.285e-02  1.921e+02  -0.315   0.7529  
+# Somatic_Anxiety -3.755e-03  1.023e-02  1.676e+02  -0.367   0.7141  
+# Suicide          4.355e-03  9.527e-03  1.876e+02   0.457   0.6481   
+
+
+Model5 <- lmer(ML1 ~ PTSD*Anhedonia*Anxiety +
+                 (1 | Subject_ID) + (1|Project),
+               data = IMPcyto)
+summary(Model5)
+
+
+```
+
+
+#SEPARATE OUT VISITS FOR GRAPHING
+```{r}
+ImputedVisit1 <- filter(IMPcyto, Visit_Number == 1)
+ImputedVisit2 <- filter(IMPcyto, Visit_Number == 2)
+ImputedVisit3 <- filter(IMPcyto, Visit_Number ==3)
+```
+
+#ML1 + ANHEDONIA + Project
+```{r FIGURES Cytokine by Mood Factor and Project}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+# ML1Visit1 <- ggplot(ImputedVisit1, aes(x = ML1, y = Anhedonia, color = factor(Project)))+
+#   geom_point()+ 
+#   geom_smooth(method = "lm", se = FALSE)+
+#   stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+#   scale_color_discrete()+
+#   labs(title = "Visit 1", x = "ML1", y = "Anhedonia") + theme(
+#   plot.background = element_rect(fill = "white")
+# )
+# ML1Visit2 <- ggplot(ImputedVisit2, aes(x = ML1, y = Anhedonia, color = factor(Project)))+
+#   geom_point()+ 
+#   geom_smooth(method = "lm", se = FALSE)+
+#   stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+#   scale_color_discrete()+
+#   labs(title = "Visit 2", x = "ML1", y = "Anhedonia") + theme(
+#   plot.background = element_rect(fill = "white")
+# )
+# ML1Visit3 <- ggplot(ImputedVisit3, aes(x = ML1, y = Anhedonia, color = factor(Project)))+
+#   geom_point()+ 
+#   geom_smooth(method = "lm", se = FALSE)+
+#   stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+#   scale_color_discrete()+
+#   labs(title = "Visit 3", x = "ML1", y = "Anhedonia") + theme(
+#   plot.background = element_rect(fill = "white")
+# )
+# 
+
+
+# ML1_Anhedonia <- ggarrange(ML1Visit1, ML1Visit2, ML1Visit3, ML1, 
+#                                ncol = 4, nrow = 1,
+#                               common.legend = TRUE, legend = "top")
+# 
+# ggsave("ML1Anhedonia.png", ML1, width = 15, height = 5)
+
+
+ML1all_Anxiety <- ggplot(IMPcyto, aes(x = ML1, y = Anxiety, color = factor(Project)))+
+  geom_point()+
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1all_Anxiety
+
+```
+
+#ML1 + Anxiety + Project
+```{r FIGURES Cytokine by Mood Factor and Project}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+ML1Visit1 <- ggplot(ImputedVisit1, aes(x = ML1, y = Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2 <- ggplot(ImputedVisit2, aes(x = ML1, y = Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3 <- ggplot(ImputedVisit3, aes(x = ML1, y = Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_Anxiety <- ggplot(IMPcyto, aes(x = ML1, y = Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1_Anxiety <- ggarrange(ML1Visit1, ML1Visit2, ML1Visit3, ML1, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1Anxiety.png", ML1, width = 15, height = 5)
+
+
+
+ML1_Anxiety
+
+```
+
+
+
+
+
+```{r ML1 by PTSD, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1b <- ggplot(ImputedVisit1, aes(x = ML1, y = PTSD, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2b <- ggplot(ImputedVisit2, aes(x = ML1, y = PTSD, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3b <- ggplot(ImputedVisit3, aes(x = ML1, y = PTSD, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_PTSD <- ggplot(IMPcyto, aes(x = ML1, y = PTSD, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_PTSD <- ggarrange(ML1Visit1b, ML1Visit2b, ML1Visit3b, ML1,  
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1PTSD.png", ML1, width = 15, height = 5)
+
+ML1_PTSD
+
+```
+```{r ML1 by GI, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1_GI <- ggplot(ImputedVisit1, aes(x = ML1, y = GI, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2_GI <- ggplot(ImputedVisit2, aes(x = ML1, y = GI, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3_GI <- ggplot(ImputedVisit3, aes(x = ML1, y = GI, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_GI <- ggplot(IMPcyto, aes(x = ML1, y = GI, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_GI <- ggarrange(ML1Visit1_GI, ML1Visit2_GI, ML1Visit3_GI, ML1all_GI,  
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1GI.png", ML1, width = 15, height = 5)
+
+ML1_GI
+```
+
+
+```{r ML1 by Positive_Affect, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1c <- ggplot(ImputedVisit1, aes(x = ML1, y = Positive_Affect, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2c <- ggplot(ImputedVisit2, aes(x = ML1, y = Positive_Affect, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3c <- ggplot(ImputedVisit3, aes(x = ML1, y = Positive_Affect, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_Positive_Affect <- ggplot(IMPcyto, aes(x = ML1, y = Positive_Affect, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_Positive_Affect <- ggarrange(ML1Visit1c, ML1Visit2c, ML1Visit3c, ML1all_Positive_Affect,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1_PositiveAffect.png", ML1, width = 15, height = 5)
+
+ML1_Positive_Affect
+
+```
+#Sleep
+```{r ML1 by Sleep, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1_Sleep <- ggplot(ImputedVisit1, aes(x = ML1, y = Sleep, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2_Sleep <- ggplot(ImputedVisit2, aes(x = ML1, y = Sleep, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3_Sleep <- ggplot(ImputedVisit3, aes(x = ML1, y = Sleep, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_Sleep <- ggplot(IMPcyto, aes(x = ML1, y = Sleep, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_Sleep <- ggarrange(ML1Visit1c, ML1Visit2c, ML1Visit3c, ML1all_Sleep,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1_Sleep.png", ML1, width = 15, height = 5)
+
+ML1_Sleep
+
+```
+
+```{r ML1 by Somatic_Anxiety, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1_Somatic_Anxiety <- ggplot(ImputedVisit1, aes(x = ML1, y = Somatic_Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2_Somatic_Anxiety <- ggplot(ImputedVisit2, aes(x = ML1, y = Somatic_Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3_Somatic_Anxiety <- ggplot(ImputedVisit3, aes(x = ML1, y = Somatic_Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_Somatic_Anxiety <- ggplot(IMPcyto, aes(x = ML1, y = Somatic_Anxiety, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_Somatic_Anxiety <- ggarrange(ML1Visit1c, ML1Visit2c, ML1Visit3c, ML1all_Somatic_Anxiety,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1_Somatic_Anxiety.png", ML1, width = 15, height = 5)
+
+ML1_Somatic_Anxiety
+
+```
+
+```{r ML1 by Suicide, Project}
+
+#### ML1-gamma by Anxiety, Project and visit
+ML1Visit1_Suicide <- ggplot(ImputedVisit1, aes(x = ML1, y = Suicide, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "ML1", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit2_Suicide <- ggplot(ImputedVisit2, aes(x = ML1, y = Suicide, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "ML1", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+ML1Visit3_Suicide <- ggplot(ImputedVisit3, aes(x = ML1, y = Suicide, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "ML1", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1all_Suicide <- ggplot(IMPcyto, aes(x = ML1, y = Suicide, color = factor(Project)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "ML1", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+ML1_Suicide <- ggarrange(ML1Visit1c, ML1Visit2c, ML1Visit3c, ML1all_Suicide,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("ML1_Suicide.png", ML1, width = 15, height = 5)
+
+ML1_Suicide
+
+```
+
+
+
+## SAVE THE FIGURE TO FILEPATH
+```{r}
+ML1Figures <- ggarrange(ML1all_Anhedonia, ML1all_Anxiety, ML1all_PTSD, ML1all_GI,
+                        ML1all_Positive_Affect, ML1all_Sleep, ML1all_Somatic_Anxiety, ML1all_Suicide, 
+                        ncol = 4, nrow = 2,
+                        common.legend = TRUE, legend = "top")
+
+ggsave("ML1_AllVisits.png", ML1Figures, width = 20, height = 10)
+
+ML1Figures
+
+
+```
+####NON IMPUTED ==========================================================================================================================
+####NON IMPUTED
+```{r identify the number of "yes" and "no" for the drug use variables}
+
+NONimpCyto2[,c(5)] <- lapply(NONimpCyto2[,c(5)], as.character)
+
+#new function
+count_zeros_ones <- function(col) {
+  zeros <- sum(col == 0, na.rm = TRUE)
+  ones <- sum(col == 1, na.rm = TRUE)
+  return(c(zeros, ones))
+}
+
+#use the function
+counts <- sapply(NONimpCyto2[,c(31:47)], count_zeros_ones)
+
+#create a table with results
+result_table <- data.frame(
+  Column = colnames(NONimpCyto2[,c(31:47)]),
+  No = counts[1,],
+  Yes = counts[2,]
+)
+
+result_table
+```
+
+#ML1, Imputed, experimental variables and drugs
+```{r ML1 vs all variables using NON imputed data}
+
+#Experimental Variables
+Model1 <- lmer(ML1 ~ Project + Visit_Number + Plate + Project + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = NONimpCyto)
+summary(Model1)
+
+
+# Move significant experimental variables to random; Add bioloPositive_Affectcal Variables
+Model2 <- lmer(ML1 ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + ApproxAge +
+                 (1 | Subject_ID) + (1|Project) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model2)
+
+#Remove ns and add medications
+Model3 <- lmer(ML1 ~ Antidepressant_Rx + BP_Rx + caffeine_today + Mood_Rx + nicotine_today + Pain_Rx + Psych_Rx + 
+                 Sleep_Rx + Statin_Rx +
+                 (1 | Subject_ID) + (1|Project) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model3)
+
+#remove ns and add moood
+Model4 <- lmer(ML1 ~ nicotine_today + 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|Project) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model4)
+
+Model4b <- lmer(ML1 ~ 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|Project) + (1|silanized_LPS) + (1|nicotine_today),
+               data = NONimpCyto)
+summary(Model4b)
+```

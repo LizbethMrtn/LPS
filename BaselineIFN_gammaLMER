@@ -1,0 +1,683 @@
+---
+title: "Histograms and Stats with Cytokine LPS0 and NonLPS"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+setwd("/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline")
+
+#Load Libraries
+```{r libraries}
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(missForest)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(rmarkdown)
+
+library(corrr)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(magrittr)
+library(nFactors)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(lme4)
+library(lmerTest)
+library(nlme)
+
+library(effects)
+library(ggpubr)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+
+```
+
+
+### Cytokine data are imputed (or not), have been LN transformed; one outlier removed from IL10, 0-1 scaled with NonLPS and LPS0 combined, Composit scores created, In same file along with relevant info and covariates of interest
+###Mood variables are composite scores as well
+### this only includes the LPS0 and nonLPS 'doses'
+```{r import data}
+IMPcyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "IMPcyto_Mood_CoVar") 
+NONimpCyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "NonimpCyto_Mood_CoVar")
+
+str(IMPcyto)
+
+#convert character to numeric
+IMPcyto[,c(32:42, 44:47)] <- lapply(IMPcyto[,c(32:42, 44:47)], as.numeric)
+str(IMPcyto)
+
+str(NONimpCyto)
+```
+
+
+#SKIP FOR NOW
+```{r update relevant variables to factors}
+#copy dataframes so I don't mess them up
+IMPcyto2 <- IMPcyto
+NONimpCyto2 <- NONimpCyto
+
+#update variables to factors
+#df[, c(2:5)] <- lapply(df[, c(2:5)], as.numeric)
+
+IMPcyto2[,c(6:11,29)] <- lapply(IMPcyto2[,c(6:11,29)], as.factor)
+NONimpCyto2[,c(6:11,29)] <- lapply(NONimpCyto2[,c(6:11,29)], as.factor)
+
+str(IMPcyto2)
+str(NONimpCyto2)
+
+```
+#SKIP FOR NOW
+```{r identify the number of "yes" and "no" for the drug use variables}
+
+IMPcyto2[,c(5)] <- lapply(IMPcyto2[,c(5)], as.character)
+
+#new function
+count_zeros_ones <- function(col) {
+  zeros <- sum(col == 0, na.rm = TRUE)
+  ones <- sum(col == 1, na.rm = TRUE)
+  return(c(zeros, ones))
+}
+
+#use the function
+counts <- sapply(IMPcyto2[,c(31:47)], count_zeros_ones)
+
+#create a table with results
+result_table <- data.frame(
+  Column = colnames(IMPcyto2[,c(31:47)]),
+  No = counts[1,],
+  Yes = counts[2,]
+)
+
+```
+
+#IFNgamma, Imputed, experimental variables and drugs
+```{r IFNgamma vs all variables using imputed data}
+
+#Experimental Variables
+Model1 <- lmer(IFNgamma ~ Project + Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = IMPcyto)
+summary(Model1)
+# Project         0.005293   0.007030 101.275330   0.753 0.453188    
+# Visit_Number   -0.015809   0.007917 137.414935  -1.997 0.047823 *  
+# Plate          -0.004022   0.004592  88.629856  -0.876 0.383397    
+# LPS_DOSE       -0.056034   0.014458 163.463120  -3.876 0.000154 ***
+# silanized_LPS  -0.064205   0.022514 161.279403  -2.852 0.004918 ** 
+
+# Move significant experimental variables to random; Add biological Variables
+Model2 <- lmer(IFNgamma ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + ApproxAge +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = IMPcyto)
+summary(Model2)
+
+# MeanBMI      3.949e-03  3.043e-03  9.475e+01   1.298  0.19751   
+# SystolicBP   1.946e-04  8.068e-04  1.800e+02   0.241  0.80965   
+# DiastolicBP -2.959e-03  1.326e-03  1.825e+02  -2.231  0.02689 * 
+# PulseRate    4.301e-04  8.065e-04  1.999e+02   0.533  0.59445   
+# Gender2     -1.093e-02  3.313e-02  9.320e+01  -0.330  0.74215   
+# ApproxAge    6.132e-04  1.101e-03  9.530e+01   0.557  0.57882   
+
+#Remove ns variables, add medications
+Model3 <- lmer(IFNgamma ~ DiastolicBP + 
+                 Antidepressant_Rx + BP_Rx + caffeine_today + Mood_Rx + nicotine_today + Pain_Rx + Psych_Rx + 
+                 Sleep_Rx + Statin_Rx +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = IMPcyto)
+summary(Model3)
+
+# DiastolicBP       -2.500e-03  9.932e-04  1.950e+02  -2.517   0.0126 *  
+# Antidepressant_Rx  2.016e-02  2.162e-02  1.919e+02   0.933   0.3521    
+# BP_Rx             -3.857e-03  2.950e-02  1.989e+02  -0.131   0.8961    
+# caffeine_today    -3.335e-03  1.909e-02  1.686e+02  -0.175   0.8615    
+# Mood_Rx            3.493e-03  3.163e-02  1.917e+02   0.110   0.9122    
+# nicotine_today    -3.057e-02  2.894e-02  1.995e+02  -1.056   0.2921    
+# Pain_Rx           -2.918e-02  1.927e-02  1.797e+02  -1.515   0.1316    
+# Psych_Rx           4.412e-03  2.124e-02  1.778e+02   0.208   0.8357    
+# Sleep_Rx          -3.894e-02  2.024e-02  1.921e+02  -1.924   0.0558 .  
+# Statin_Rx          1.842e-02  3.559e-02  1.868e+02   0.517   0.6054   
+
+#Remove ns variables, add mood factors
+Model4 <- lmer(IFNgamma ~ DiastolicBP + 
+                 Sleep_Rx + 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = IMPcyto)
+summary(Model4)
+
+# DiastolicBP     -2.645e-03  9.381e-04  2.003e+02  -2.820  0.00529 ** 
+# Sleep_Rx        -4.702e-02  1.899e-02  2.000e+02  -2.476  0.01413 *  
+# Anhedonia       -1.016e-02  1.914e-02  1.960e+02  -0.531  0.59614    
+# Anxiety         -2.839e-02  1.875e-02  1.873e+02  -1.514  0.13173    
+# PTSD            -4.447e-03  2.236e-02  2.014e+02  -0.199  0.84256    
+# GI              -2.388e-02  1.115e-02  1.921e+02  -2.142  0.03342 *  
+# Positive_Affect -1.327e-02  1.537e-02  2.051e+02  -0.863  0.38904    
+# Sleep            4.665e-02  1.769e-02  2.023e+02   2.637  0.00901 ** 
+# Somatic_Anxiety  2.424e-02  1.433e-02  1.789e+02   1.692  0.09233 .  
+# Suicide         -1.859e-04  1.348e-02  1.975e+02  -0.014  0.98901 
+
+#Remove ns Anhedonia, PTSD, Suicide
+Model5 <- lmer(IFNgamma ~ DiastolicBP + Sleep_Rx + 
+                 Anxiety + GI + Positive_Affect + Sleep + Somatic_Anxiety + 
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = IMPcyto)
+summary(Model5)
+#visit accounts for very little variability in results; remove
+
+# DiastolicBP     -2.710e-03  9.255e-04  2.046e+02  -2.928   0.0038 ** 
+# Sleep_Rx        -4.680e-02  1.880e-02  2.028e+02  -2.489   0.0136 *  
+# Anxiety         -3.246e-02  1.608e-02  1.974e+02  -2.019   0.0448 *  
+# GI              -2.352e-02  1.108e-02  1.948e+02  -2.123   0.0350 *  
+# Positive_Affect -1.735e-02  1.441e-02  2.083e+02  -1.204   0.2299    
+# Sleep            4.554e-02  1.695e-02  2.055e+02   2.687   0.0078 ** 
+# Somatic_Anxiety  2.274e-02  1.354e-02  1.811e+02   1.679   0.0948 .  
+
+Model6 <- lmer(IFNgamma ~ DiastolicBP + Sleep_Rx + 
+                 Anxiety + GI + Sleep + Somatic_Anxiety + 
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = IMPcyto)
+summary(Model6)
+
+Model7 <- lmer(IFNgamma ~ DiastolicBP + 
+                 Anxiety + GI + Sleep + Somatic_Anxiety + 
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|silanized_LPS) + (1|Sleep_Rx),
+               data = IMPcyto)
+summary(Model7)
+
+```
+
+
+#SEPARATE OUT VISITS FOR GRAPHING
+```{r}
+ImputedVisit1 <- filter(IMPcyto, Visit_Number == 1)
+ImputedVisit2 <- filter(IMPcyto, Visit_Number == 2)
+ImputedVisit3 <- filter(IMPcyto, Visit_Number ==3)
+```
+
+```{r histograms in ggplot}
+IFNgamma <- ggplot(data=IMPcyto) +
+  geom_histogram(aes(x=IFNgamma, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+
+IL10 <- ggplot(data=IMPcyto) +
+  geom_histogram(aes(x=IL10, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+ML1 <- ggplot(data=IMPcyto) +
+  geom_histogram(aes(x=ML1, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+ML2 <- ggplot(data=IMPcyto) +
+  geom_histogram(aes(x=ML2, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+IFNgamma
+IL10
+ML1
+ML2
+
+```
+
+#IFN-gamma + Sleep + LPS_DOSE
+```{r FIGURES Cytokine by Mood Factor and LPS_DOSE}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+IFNVisit1 <- ggplot(ImputedVisit1, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2 <- ggplot(ImputedVisit2, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3 <- ggplot(ImputedVisit3, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN_Sleep <- ggplot(IMPcyto, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN_Sleep_SleepRx <- ggplot(IMPcyto, aes(x = IFNgamma, y = Sleep, color = factor(Sleep_Rx)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN_Sleep
+IFN_Sleep_SleepRx
+
+```
+
+```{r}
+IFN_Anxiety <- ggplot(IMPcyto, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN_Anxiety_SleepRx <- ggplot(IMPcyto, aes(x = IFNgamma, y = Anxiety, color = factor(Sleep_Rx)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN_Anxiety
+IFN_Anxiety_SleepRx
+```
+
+
+## SAVE THE FIGURE TO FILEPATH
+```{r IFNgamma Sleep by visit and LPSdose}
+IFN2 <- ggarrange(IFNVisit1, IFNVisit2, IFNVisit3, IFN, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IFNgammaSleep.png", IFN, width = 15, height = 5)
+
+IFN2
+
+```
+
+```{r IFNgamma by Anxiety, LPS_DOse}
+
+#### IFN-gamma by Anxiety, LPS_DOSE and visit
+IFNVisit1b <- ggplot(ImputedVisit1, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2b <- ggplot(ImputedVisit2, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3b <- ggplot(ImputedVisit3, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+```{r IFNgamma by GI, LPS_DOse}
+
+#### IFN-gamma by Anxiety, LPS_DOSE and visit
+IFNVisit1c <- ggplot(ImputedVisit1, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2c <- ggplot(ImputedVisit2, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3c <- ggplot(ImputedVisit3, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+## SAVE THE FIGURE TO FILEPATH
+```{r}
+IFNgammaFigures <- ggarrange(IFNVisit1, IFNVisit2, IFNVisit3, 
+                             IFNVisit1b, IFNVisit2b, IFNVisit3b,
+                             IFNVisit1c, IFNVisit2c, IFNVisit3c,
+                               ncol = 3, nrow = 3,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IFNgammaFigures.png", IFNgammaFigures, width = 15, height = 15)
+
+IFNgammaFigures
+
+#probably should re-name the "sleep" category to "insomnia"...
+```
+####NON IMPUTED ==========================================================================================================================
+####NON IMPUTED
+```{r identify the number of "yes" and "no" for the drug use variables}
+
+NONimpCyto2[,c(5)] <- lapply(NONimpCyto2[,c(5)], as.character)
+
+#new function
+count_zeros_ones <- function(col) {
+  zeros <- sum(col == 0, na.rm = TRUE)
+  ones <- sum(col == 1, na.rm = TRUE)
+  return(c(zeros, ones))
+}
+
+#use the function
+counts <- sapply(NONimpCyto2[,c(31:47)], count_zeros_ones)
+
+#create a table with results
+result_table <- data.frame(
+  Column = colnames(NONimpCyto2[,c(31:47)]),
+  No = counts[1,],
+  Yes = counts[2,]
+)
+
+result_table
+```
+
+#IFNgamma, Imputed, experimental variables and drugs
+```{r IFNgamma vs all variables using NON imputed data}
+
+#Experimental Variables
+Model1 <- lmer(IFNgamma ~ Project + Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = NONimpCyto)
+summary(Model1)
+#Project         0.005297   0.007033 101.276455   0.753 0.453111    
+#Visit_Number   -0.015824   0.007920 137.414763  -1.998 0.047705 *  
+#Plate          -0.004023   0.004594  88.631901  -0.876 0.383548    
+#LPS_DOSE       -0.056073   0.014465 163.477201  -3.877 0.000153 ***
+#silanized_LPS  -0.064249   0.022523 161.274552  -2.853 0.004905 ** 
+
+# Move significant experimental variables to random; Add biological Variables
+Model2 <- lmer(IFNgamma ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + ApproxAge +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model2)
+
+#MeanBMI      3.951e-03  3.044e-03  9.475e+01   1.298  0.19751   
+#SystolicBP   1.956e-04  8.071e-04  1.799e+02   0.242  0.80876   
+#DiastolicBP -2.962e-03  1.327e-03  1.825e+02  -2.232  0.02680 * 
+#PulseRate    4.312e-04  8.068e-04  1.999e+02   0.534  0.59360   
+#Gender      -1.093e-02  3.314e-02  9.321e+01  -0.330  0.74232   
+#ApproxAge    6.135e-04  1.101e-03  9.530e+01   0.557  0.57876  
+   
+
+#Remove ns variables, add medications
+Model3 <- lmer(IFNgamma ~ DiastolicBP + 
+                 Antidepressant_Rx + BP_Rx + caffeine_today + Mood_Rx + nicotine_today + Pain_Rx + Psych_Rx + 
+                 Sleep_Rx + Statin_Rx +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model3)
+# DiastolicBP       -2.501e-03  9.936e-04  1.950e+02  -2.517   0.0126 *  
+# Antidepressant_Rx  2.019e-02  2.162e-02  1.919e+02   0.934   0.3515    
+# BP_Rx             -3.862e-03  2.952e-02  1.989e+02  -0.131   0.8960    
+# caffeine_today    -3.298e-03  1.910e-02  1.686e+02  -0.173   0.8631    
+# Mood_Rx            3.498e-03  3.164e-02  1.917e+02   0.111   0.9121    
+# nicotine_today    -3.058e-02  2.895e-02  1.995e+02  -1.057   0.2920    
+# Pain_Rx           -2.918e-02  1.928e-02  1.797e+02  -1.514   0.1318    
+# Psych_Rx           4.410e-03  2.125e-02  1.778e+02   0.208   0.8358    
+# Sleep_Rx          -3.896e-02  2.024e-02  1.921e+02  -1.925   0.0557 .  
+# Statin_Rx          1.842e-02  3.560e-02  1.868e+02   0.517   0.6055  
+
+#Remove ns variables, add mood factors
+Model4 <- lmer(IFNgamma ~ DiastolicBP + 
+                 Sleep_Rx + 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model4)
+# DiastolicBP     -2.647e-03  9.385e-04  2.003e+02  -2.820  0.00528 ** 
+# Sleep_Rx        -4.704e-02  1.900e-02  2.000e+02  -2.476  0.01412 *  
+# Anhedonia       -1.015e-02  1.914e-02  1.959e+02  -0.530  0.59664    
+# Anxiety         -2.841e-02  1.876e-02  1.873e+02  -1.514  0.13164    
+# PTSD            -4.444e-03  2.237e-02  2.014e+02  -0.199  0.84274    
+# GI              -2.389e-02  1.115e-02  1.920e+02  -2.143  0.03340 *  
+# Positive_Affect -1.328e-02  1.537e-02  2.051e+02  -0.864  0.38863    
+# Sleep            4.667e-02  1.769e-02  2.023e+02   2.638  0.00900 ** 
+# Somatic_Anxiety  2.425e-02  1.433e-02  1.789e+02   1.692  0.09233 .  
+# Suicide         -1.917e-04  1.348e-02  1.975e+02  -0.014  0.98867
+
+#Remove ns Anhedonia, PTSD, Suicide
+Model5 <- lmer(IFNgamma ~ DiastolicBP + Sleep_Rx + 
+                 Anxiety + GI + Positive_Affect + Sleep + Somatic_Anxiety + 
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model5)
+#visit accounts for very little variability in results; remove
+# DiastolicBP     -2.711e-03  9.258e-04  2.046e+02  -2.929  0.00379 ** 
+# Sleep_Rx        -4.682e-02  1.881e-02  2.028e+02  -2.489  0.01361 *  
+# Anxiety         -3.247e-02  1.608e-02  1.974e+02  -2.019  0.04484 *  
+# GI              -2.353e-02  1.108e-02  1.947e+02  -2.123  0.03499 *  
+# Positive_Affect -1.737e-02  1.441e-02  2.083e+02  -1.205  0.22954    
+# Sleep            4.557e-02  1.695e-02  2.055e+02   2.688  0.00778 ** 
+# Somatic_Anxiety  2.275e-02  1.354e-02  1.811e+02   1.680  0.09472 .  
+
+#remove Positive Affect
+Model6 <- lmer(IFNgamma ~ DiastolicBP + Sleep_Rx + 
+                 Anxiety + GI + Sleep + Somatic_Anxiety + 
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model6)
+
+```
+
+
+#SEPARATE OUT VISITS FOR GRAPHING
+```{r Non imputed}
+NonIMPVisit1 <- filter(NONimpCyto, Visit_Number == 1)
+NonIMPVisit2 <- filter(NONimpCyto, Visit_Number == 2)
+NonIMPVisit3 <- filter(NONimpCyto, Visit_Number ==3)
+```
+
+```{r histograms in ggplot NON imputed}
+IFNgamma <- ggplot(data=NONimpCyto) +
+  geom_histogram(aes(x=IFNgamma, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+
+IL10 <- ggplot(data=NONimpCyto) +
+  geom_histogram(aes(x=IL10, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+ML1 <- ggplot(data=NONimpCyto) +
+  geom_histogram(aes(x=ML1, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+ML2 <- ggplot(data=NONimpCyto) +
+  geom_histogram(aes(x=ML2, fill=LPS_DOSE))+
+  facet_wrap(~Visit_Number)
+
+IFNgamma
+IL10
+ML1
+ML2
+
+```
+
+#IFN-gamma + Sleep + LPS_DOSE NON imputed
+```{r FIGURES Cytokine by Mood Factor and LPS_DOSE NON IMPUTED}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+IFNVisit1 <- ggplot(NonIMPVisit1, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2 <- ggplot(NonIMPVisit2, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3 <- ggplot(NonIMPVisit3, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IFN <- ggplot(NONimpCyto2, aes(x = IFNgamma, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IFN", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+
+```
+
+## SAVE THE FIGURE TO FILEPATH
+```{r IFNgamma Sleep by visit and LPSdose}
+IFN3 <- ggarrange(IFNVisit1, IFNVisit2, IFNVisit3, IFN, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IFNgammaSleepNonImp.png", IFN3, width = 15, height = 5)
+
+IFN3
+
+```
+
+```{r IFNgamma by Anxiety, LPS_DOse NonIMP}
+
+#### IFN-gamma by Anxiety, LPS_DOSE and visit
+IFNVisit1b <- ggplot(NonIMPVisit1, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2b <- ggplot(NonIMPVisit2, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3b <- ggplot(NonIMPVisit3, aes(x = IFNgamma, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+```{r IFNgamma by GI, LPS_DOse}
+
+#### IFN-gamma by Anxiety, LPS_DOSE and visit
+IFNVisit1c <- ggplot(NonIMPVisit1, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit2c <- ggplot(NonIMPVisit2, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IFNVisit3c <- ggplot(NonIMPVisit3, aes(x = IFNgamma, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IFN", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+## SAVE THE FIGURE TO FILEPATH
+```{r}
+IFNgammaFigures <- ggarrange(IFNVisit1, IFNVisit2, IFNVisit3, 
+                             IFNVisit1b, IFNVisit2b, IFNVisit3b,
+                             IFNVisit1c, IFNVisit2c, IFNVisit3c,
+                               ncol = 3, nrow = 3,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IFNgammaFiguresNonIMP.png", IFNgammaFigures, width = 15, height = 15)
+
+IFNgammaFigures
+
+#probably should re-name the "sleep" category to "insomnia"...
+```

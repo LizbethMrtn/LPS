@@ -1,5 +1,6 @@
 # Cytokine Concentrations in blood following ex vivo LPS 0, 70, 200, or 600 (some samples are non-incubated baseline)  Data from Biorepository
 
+**ORIGINAL DATA (02/2023)**
 RAW DATA Excel File
 https://github.com/LizbethMrtn/LPS/blob/main/cytokine_data_merged_project_9_15_RAW.xlsx
 
@@ -13,4 +14,8 @@ https://github.com/LizbethMrtn/LPS/blob/main/1.25.24cytokine_data_merged_project
 Quality Control Data Organization (r); Kelleigh H.
 https://github.com/LizbethMrtn/LPS/blob/main/1.30.24%20Cytokine%20QC%20Analysis.Rmd
 
+**ORGANIZE AND TRANSFORM CYTOKINE DATA**
 Transpose Cytokine Concentration Data
+https://github.com/LizbethMrtn/LPS/blob/63411365fb5d661d37319677cd06cc8c7ad8311d/TransposeRAWCytokineData.xlsx
+
+

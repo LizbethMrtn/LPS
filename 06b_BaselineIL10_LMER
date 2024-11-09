@@ -1,0 +1,919 @@
+---
+title: "IL10 LMER"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+setwd("/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline")
+
+#Load Libraries
+```{r libraries}
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(missForest)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(rmarkdown)
+
+library(corrr)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(magrittr)
+library(nFactors)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(lme4)
+library(lmerTest)
+library(nlme)
+
+library(effects)
+library(ggpubr)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/00. LPS Cytokine Data Analysis Pipeline"
+
+```
+
+
+### Cytokine data are imputed (or not), have been LN transformed; one outlier removed from IL10, 0-1 scaled with NonLPS and LPS0 combined, Composit scores created, In same file along with relevant info and covariates of interest
+###Mood variables are composite scores as well
+### this only includes the LPS0 and nonLPS 'doses'
+```{r import data}
+IMPcyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "IMPcyto_Mood_CoVar") 
+NONimpCyto = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "NonimpCyto_Mood_CoVar")
+
+str(IMPcyto)
+str(NONimpCyto)
+```
+
+
+```{r import data}
+#convert character to numeric
+IMPcyto2 <- IMPcyto
+IMPcyto2[,c(6:11, 29, 31:48)] <- lapply(IMPcyto2[,c(6:11, 29, 31:48)], as.factor)
+
+str(IMPcyto2)
+
+```
+
+
+```{r update relevant variables to factors}
+#copy dataframes so I don't mess them up
+NONimpCyto2 <- NONimpCyto
+
+#update variables to factors
+#df[, c(2:5)] <- lapply(df[, c(2:5)], as.numeric)
+NONimpCyto2[,c(6:11, 29, 31:48)] <- lapply(NONimpCyto2[,c(6:11, 29, 31:48)], as.factor)
+
+str(NONimpCyto2)
+
+```
+
+
+
+```{r identify the number of "yes" and "no" for the drug use variables}
+#new function
+
+IMPcyto2_Visit3 <- filter(IMPcyto2, Visit_Number == 3)
+
+count_zeros_ones <- function(col) {
+  zeros <- sum(col == 0, na.rm = TRUE)
+  ones <- sum(col == 1, na.rm = TRUE)
+  return(c(zeros, ones))
+}
+
+#use the function
+counts <- sapply(IMPcyto2_Visit3[,c(32:48)], count_zeros_ones)
+
+
+#create a table with results
+result_table3 <- data.frame(
+  Column = colnames(IMPcyto2_Visit3[,c(32:48)]),
+  No = counts[1,],
+  Yes = counts[2,]
+)
+
+result_table3
+rm(result_table2)
+```
+
+#IL10, Imputed, experimental variables and drugs
+#Age as categorical
+```{r IL10 vs all variables using imputed data}
+#Experimental Variables
+Model1 <- lmer(IL10 ~ Project + Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = IMPcyto)
+summary(Model1)
+
+# Project        9.733e-03  9.042e-03  9.282e+01   1.076 0.284532    
+# Visit_Number  -9.119e-04  1.099e-02  1.300e+02  -0.083 0.934004    
+# Plate         -5.417e-03  5.877e-03  7.987e+01  -0.922 0.359436    
+# LPS_DOSE      -5.611e-02  1.896e-02  1.458e+02  -2.960 0.003595 ** 
+# silanized_LPS -4.644e-03  3.100e-02  1.586e+02  -0.150 0.881091 
+
+# Move significant experimental variables to random; Add biological Variables
+Model2 <- lmer(IL10 ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + Age_Cat +
+                 (1 | Subject_ID) + (1|LPS_DOSE),
+               data = IMPcyto)
+summary(Model2)
+
+# MeanBMI      3.958e-03  3.921e-03  8.971e+01   1.009  0.31555   
+# SystolicBP   5.827e-04  1.107e-03  1.907e+02   0.527  0.59910   
+# DiastolicBP -2.632e-03  1.831e-03  1.926e+02  -1.437  0.15233   
+# PulseRate    1.484e-03  1.079e-03  2.090e+02   1.376  0.17044   
+# Gender2     -3.755e-02  4.269e-02  8.892e+01  -0.880  0.38140   
+# Age_Cat     -3.262e-02  1.637e-02  9.703e+01  -1.993  0.04909 *   
+
+#Remove ns variables, add medications
+Model3 <- lmer(IL10 ~ Age_Cat + 
+                 Antidepressant_Rx + BP_Rx + caffeine_today + Mood_Rx + nicotine_today + Pain_Rx + Psych_Rx + 
+                 Sleep_Rx + Statin_Rx +
+                 (1 | Subject_ID) + (1|LPS_DOSE),
+               data = IMPcyto)
+summary(Model3)
+
+# Age_Cat            -0.039006   0.016599 113.726432  -2.350 0.020501 *  
+# Antidepressant_Rx  -0.004006   0.027671 200.550529  -0.145 0.885042    
+# BP_Rx               0.040983   0.038543 205.051494   1.063 0.288903    
+# caffeine_today     -0.051798   0.024461 180.025752  -2.118 0.035587 *  
+# Mood_Rx            -0.039575   0.041675 201.597730  -0.950 0.343453    
+# nicotine_today     -0.054644   0.038071 203.986390  -1.435 0.152732    
+# Pain_Rx1           -0.024372   0.025114 192.593059  -0.970 0.333042    
+# Psych_Rx            0.025737   0.027870 199.020387   0.923 0.356879    
+# Sleep_Rx            0.041301   0.026173 203.366042   1.578 0.116119    
+# Statin_Rx           0.032302   0.047903 186.908417   0.674 0.500934    
+
+#Remove ns variables, add mood factors
+Model4 <- lmer(IL10 ~ Age_Cat + 
+                 caffeine_today + 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|LPS_DOSE),
+               data = IMPcyto)
+summary(Model4)
+
+# Age_Cat          -0.033016   0.015703 100.456909  -2.103  0.03801 * 
+# caffeine_today   -0.049244   0.024216 177.141518  -2.034  0.04349 * 
+# Anhedonia         0.036230   0.026249 201.941915   1.380  0.16903   
+# Anxiety           0.021867   0.025810 194.789910   0.847  0.39791   
+# PTSD             -0.020664   0.029929 208.631570  -0.690  0.49068   
+# GI               -0.009736   0.015487 203.196303  -0.629  0.53030   
+# Positive_Affect  -0.016815   0.020881 211.292409  -0.805  0.42157   
+# Sleep             0.015253   0.024490 209.112112   0.623  0.53408   
+# Somatic_Anxiety  -0.008036   0.019816 189.119080  -0.406  0.68554   
+# Suicide          -0.035714   0.018142 205.865147  -1.969  0.05035 . 
+
+#caffeine as random
+Model4b <- lmer(IL10 ~ Age_Cat + 
+                 Anhedonia + Anxiety + PTSD + GI + Positive_Affect + Sleep + Somatic_Anxiety + Suicide +
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|caffeine_today),
+               data = IMPcyto)
+summary(Model4b)
+
+# ApproxAge        -0.003193   0.001397  89.408080  -2.286   0.0246 *  
+# Anhedonia         0.035177   0.026094 202.380381   1.348   0.1791    
+# Anxiety           0.020967   0.025759 193.988702   0.814   0.4166    
+# PTSD             -0.022757   0.029778 209.004332  -0.764   0.4456    
+# GI               -0.010774   0.015484 202.412036  -0.696   0.4873    
+# Positive_Affect  -0.015781   0.020831 212.359309  -0.758   0.4495    
+# Sleep             0.014570   0.024374 209.452865   0.598   0.5506    
+# Somatic_Anxiety  -0.006713   0.019717 188.629246  -0.340   0.7339    
+# Suicide          -0.034612   0.018042 206.407365  -1.918   0.0564 .  
+
+Model4c <- lmer(IL10 ~ Anhedonia*caffeine_today + Anxiety*caffeine_today + PTSD*caffeine_today + GI*caffeine_today + Positive_Affect*caffeine_today +
+                  Sleep*caffeine_today + Somatic_Anxiety*caffeine_today + Suicide*caffeine_today +
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|Age_Cat),
+               data = IMPcyto)
+summary(Model4c)
+
+
+Model4c2 <- lmer(IL10 ~ 
+                   Anhedonia*ApproxAge + Anxiety*ApproxAge + PTSD*ApproxAge + GI*ApproxAge + Positive_Affect*ApproxAge +
+                   Sleep*ApproxAge + Somatic_Anxiety*ApproxAge + Suicide*ApproxAge + caffeine_today +
+                   (1 | Subject_ID) + (1|LPS_DOSE),
+                 data = IMPcyto)
+summary(Model4c2)
+# Anhedonia                  8.597e-02  1.067e-01  1.933e+02   0.806   0.4213    
+# ApproxAge                 -2.839e-03  1.409e-03  9.086e+01  -2.014   0.0469 *  Approx Age
+# Anxiety                   -5.118e-02  9.781e-02  1.779e+02  -0.523   0.6014    
+# PTSD                       1.770e-02  1.080e-01  1.949e+02   0.164   0.8700    
+# GI                        -6.030e-02  5.626e-02  1.891e+02  -1.072   0.2852    
+# Positive_Affect           -1.875e-01  7.995e-02  1.899e+02  -2.345   0.0200 *  Positive Affect
+# Sleep                      1.484e-01  9.270e-02  2.015e+02   1.601   0.1110    
+# Somatic_Anxiety           -1.535e-01  7.999e-02  1.860e+02  -1.920   0.0564 .  somatic anxiety
+# Suicide                    5.700e-02  7.493e-02  1.950e+02   0.761   0.4477    
+# Anhedonia:ApproxAge       -7.137e-04  2.179e-03  1.869e+02  -0.328   0.7436    
+# ApproxAge:Anxiety          1.737e-03  2.101e-03  1.770e+02   0.827   0.4094    
+# ApproxAge:PTSD            -1.012e-03  2.384e-03  1.973e+02  -0.424   0.6718    
+# ApproxAge:GI               1.201e-03  1.227e-03  1.914e+02   0.979   0.3290    
+# ApproxAge:Positive_Affect  3.579e-03  1.658e-03  1.773e+02   2.158   0.0322 * #Positive Affect 
+# ApproxAge:Sleep           -3.107e-03  1.950e-03  2.016e+02  -1.594   0.1126    
+# ApproxAge:Somatic_Anxiety  3.156e-03  1.696e-03  1.760e+02   1.860   0.0645 .  Somatic Anxiety
+# ApproxAge:Suicide         -1.931e-03  1.606e-03  1.962e+02  -1.203   0.2306
+```
+
+
+```{r IL10 vs all variables using imputed data}
+Model4d <- lmer(IL10 ~ 
+                   Anhedonia*Age_Cat + Anxiety*Age_Cat + PTSD*Age_Cat + GI*Age_Cat + Positive_Affect*Age_Cat +
+                   Sleep*Age_Cat + Somatic_Anxiety*Age_Cat + Suicide*Age_Cat + caffeine_today +
+                   (1 | Subject_ID) + (1|LPS_DOSE),
+                 data = IMPcyto)
+summary(Model4d)
+# Anhedonia                 0.106676   0.066863 202.777100   1.595 0.112171    
+# Age_Cat                  -0.033938   0.015102  97.955543  -2.247 0.026869 *  
+# Anxiety                  -0.039887   0.060481 183.201450  -0.660 0.510400    
+# PTSD                      0.039449   0.067634 200.636487   0.583 0.560369    
+# GI                       -0.034563   0.034730 188.523189  -0.995 0.320905    
+# Positive_Affect          -0.150575   0.048206 199.035752  -3.124 0.002053 ** 
+# Sleep                     0.109693   0.054250 199.396847   2.022 0.044514 *  
+# Somatic_Anxiety          -0.112939   0.046066 198.757966  -2.452 0.015084 *  
+# Suicide                   0.000158   0.044528 197.770264   0.004 0.997173    
+# caffeine_today           -0.051716   0.024304 172.467360  -2.128 0.034767 *  
+# Anhedonia:Age_Cat        -0.020589   0.023967 197.373662  -0.859 0.391345    
+# Age_Cat:Anxiety           0.028314   0.023160 181.516788   1.223 0.223085    
+# Age_Cat:PTSD             -0.028338   0.027626 202.280047  -1.026 0.306218    
+# Age_Cat:GI                0.011006   0.013824 192.678706   0.796 0.426911    
+# Age_Cat:Positive_Affect   0.052347   0.017780 192.466864   2.944 0.003638 ** 
+# Age_Cat:Sleep            -0.042706   0.020453 200.577302  -2.088 0.038062 *  
+# Age_Cat:Somatic_Anxiety   0.043684   0.017453 185.541905   2.503 0.013178 *  
+# Age_Cat:Suicide          -0.011996   0.016966 199.403630  -0.707 0.480344   
+
+Model4e<- lmer(IL10 ~ 
+                   Positive_Affect*Age_Cat +
+                   Sleep*Age_Cat + Somatic_Anxiety*Age_Cat + caffeine_today +
+                   (1 | Subject_ID) + (1|LPS_DOSE),
+                 data = IMPcyto)
+summary(Model4e)
+
+# Positive_Affect          -0.10853    0.04160 211.74164  -2.609  0.00973 **
+# Age_Cat                  -0.03370    0.01446  95.36072  -2.331  0.02187 * 
+# Sleep                     0.11935    0.04472 213.98753   2.669  0.00819 **
+# Somatic_Anxiety          -0.09942    0.03820 208.99159  -2.603  0.00991 **
+# caffeine_today           -0.04711    0.02383 188.89213  -1.977  0.04949 * 
+# Positive_Affect:Age_Cat   0.04041    0.01595 200.51672   2.534  0.01206 * 
+# Age_Cat:Sleep            -0.04239    0.01690 213.44330  -2.509  0.01287 * 
+# Age_Cat:Somatic_Anxiety   0.03991    0.01515 194.80521   2.635  0.00910 **
+
+
+#caffeine as random
+Model5 <- lmer(IL10 ~ Positive_Affect*Age_Cat + Somatic_Anxiety*Age_Cat + Sleep*Age_Cat +
+                 (1 | Subject_ID) + (1|LPS_DOSE) + (1|caffeine_today),
+               data = IMPcyto)
+summary(Model5)
+# Positive_Affect          -0.10847    0.04161 211.90712  -2.607  0.00979 **
+# Age_Cat                  -0.03403    0.01450  94.80760  -2.347  0.02102 * 
+# Somatic_Anxiety          -0.09749    0.03814 209.52871  -2.556  0.01129 * 
+# Sleep                     0.11897    0.04470 214.16556   2.661  0.00838 **
+# Positive_Affect:Age_Cat   0.04055    0.01596 200.86378   2.541  0.01181 * 
+# Age_Cat:Somatic_Anxiety   0.03922    0.01512 195.34151   2.594  0.01020 * 
+# Age_Cat:Sleep            -0.04245    0.01689 213.71636  -2.514  0.01268 * 
+
+```
+
+
+
+```{r FIGURES}
+IL10all_PosAffectAge <- ggplot(IMPcyto, aes(x = Positive_Affect, y = IL10, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Positive_Affect", x = "Mood", y = "Cytokine") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_SomAnxAge <- ggplot(IMPcyto, aes(x = Somatic_Anxiety, y = IL10, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Somatic_Anxiety", x = "Mood", y = "Cytokine") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_SleepAge <- ggplot(IMPcyto, aes(x = Sleep, y = IL10, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Sleep", x = "Mood", y = "Cytokine") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10_MoodAge <- ggarrange(IL10all_PosAffectAge, IL10all_SomAnxAge, IL10all_SleepAge, 
+                               ncol = 3, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10MoodAge.png", IL10_MoodAge, width = 15, height = 5)
+
+IL10_MoodAge
+
+IL10all_PosAffectAge
+IL10all_SomAnxAge
+IL10all_SleepAge
+
+```
+
+###FIGURES ===============================================================================================
+#SEPARATE OUT VISITS FOR GRAPHING
+```{r}
+ImputedVisit1 <- filter(IMPcyto, Visit_Number == 1)
+ImputedVisit2 <- filter(IMPcyto, Visit_Number == 2)
+ImputedVisit3 <- filter(IMPcyto, Visit_Number ==3)
+```
+
+#IL10 + ANHEDONIA + LPS_DOSE
+```{r FIGURES Cytokine by Mood Factor and LPS_DOSE}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+IL10Visit1_Anhedonia <- ggplot(ImputedVisit1, aes(x = IL10, y = Anhedonia, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Anhedonia") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Anhedonia <- ggplot(ImputedVisit2, aes(x = IL10, y = Anhedonia, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Anhedonia") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Anhedonia <- ggplot(ImputedVisit3, aes(x = IL10, y = Anhedonia, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Anhedonia") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Anhedonia <- ggplot(IMPcyto, aes(x = IL10, y = Anhedonia, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Anhedonia") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10_Anhedonia <- ggarrange(IL10Visit1_Anhedonia, IL10Visit2_Anhedonia, IL10Visit3_Anhedonia, IL10all_Anhedonia, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10Anhedonia.png", IL10_Anhedonia, width = 15, height = 5)
+
+IL10_Anhedonia
+```
+
+#IL10 + Anxiety + LPS_DOSE
+```{r FIGURES Cytokine by Mood Factor and LPS_DOSE}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+IL10Visit1_Anxiety <- ggplot(ImputedVisit1, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Anxiety <- ggplot(ImputedVisit2, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Anxiety <- ggplot(ImputedVisit3, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Anxiety <- ggplot(IMPcyto, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+#show and save plots
+IL10_Anxiety <- ggarrange(IL10Visit1_Anxiety, IL10Visit2_Anxiety, IL10Visit3_Anxiety, IL10all_Anxiety, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10Anxiety.png", IL10_Anxiety, width = 15, height = 5)
+
+
+IL10_Anxiety
+
+```
+
+
+
+```{r IL10 by PTSD, LPS_DOSE}
+
+IL10Visit1_PTSD <- ggplot(ImputedVisit1, aes(x = IL10, y = PTSD, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_PTSD <- ggplot(ImputedVisit2, aes(x = IL10, y = PTSD, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_PTSD <- ggplot(ImputedVisit3, aes(x = IL10, y = PTSD, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_PTSD <- ggplot(IMPcyto, aes(x = IL10, y = PTSD, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "PTSD") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10_PTSD <- ggarrange(IL10Visit1_PTSD, IL10Visit2_PTSD, IL10Visit3_PTSD, IL10all_PTSD,  
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10PTSD.png", IL10_PTSD, width = 15, height = 5)
+
+IL10_PTSD
+
+```
+
+
+```{r IL10 by GI, LPS_DOSE}
+
+IL10Visit1_GI <- ggplot(ImputedVisit1, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_GI <- ggplot(ImputedVisit2, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_GI <- ggplot(ImputedVisit3, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_GI <- ggplot(IMPcyto, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10_GI <- ggarrange(IL10Visit1_GI, IL10Visit2_GI, IL10Visit3_GI, IL10all_GI,  
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10GI.png", IL10_GI, width = 15, height = 5)
+
+IL10_GI
+```
+
+
+```{r IL10 by Positive_Affect, Age_Cat}
+
+
+IL10Visit1_Positive_Affect <- ggplot(ImputedVisit1, aes(x = IL10, y = Positive_Affect, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Positive_Affect <- ggplot(ImputedVisit2, aes(x = IL10, y = Positive_Affect, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Positive_Affect <- ggplot(ImputedVisit3, aes(x = IL10, y = Positive_Affect, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Positive_Affect <- ggplot(IMPcyto, aes(x = IL10, y = Positive_Affect, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Positive_Affect") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10_Positive_Affect <- ggarrange(IL10Visit1_Positive_Affect, IL10Visit2_Positive_Affect, IL10Visit3_Positive_Affect,
+                                 IL10all_Positive_Affect,   
+                                 ncol = 4, nrow = 1,
+                                 common.legend = TRUE, legend = "top")
+
+ggsave("IL10_PositiveAffect.png", IL10_Positive_Affect, width = 15, height = 5)
+
+IL10_Positive_Affect
+
+IL10all_Positive_Affect
+
+```
+
+
+#Sleep
+```{r IL10 by Sleep, LPS_DOSE}
+
+IL10Visit1_Sleep <- ggplot(ImputedVisit1, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Sleep <- ggplot(ImputedVisit2, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Sleep <- ggplot(ImputedVisit3, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Sleep <- ggplot(IMPcyto, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10_Sleep <- ggarrange(IL10Visit1_Sleep, IL10Visit2_Sleep, IL10Visit3_Sleep, IL10all_Sleep,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10_Sleep.png", IL10_Sleep, width = 15, height = 5)
+
+IL10_Sleep
+
+```
+
+
+```{r IL10 by Somatic_Anxiety, LPS_DOSE}
+
+#### IL10-gamma by Anxiety, LPS_DOSE and visit
+IL10Visit1_Somatic_Anxiety <- ggplot(ImputedVisit1, aes(x = IL10, y = Somatic_Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Somatic_Anxiety <- ggplot(ImputedVisit2, aes(x = IL10, y = Somatic_Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Somatic_Anxiety <- ggplot(ImputedVisit3, aes(x = IL10, y = Somatic_Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Somatic_Anxiety <- ggplot(IMPcyto, aes(x = IL10, y = Somatic_Anxiety, color = factor(Age_Cat)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Somatic_Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10all_Somatic_Anxiety
+
+
+IL10_Somatic_Anxiety <- ggarrange(IL10Visit1_Somatic_Anxiety, IL10Visit2_Somatic_Anxiety, 
+                                  IL10Visit3_Somatic_Anxiety, IL10all_Somatic_Anxiety,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10_Somatic_Anxiety.png", IL10_Somatic_Anxiety, width = 15, height = 5)
+
+IL10_Somatic_Anxiety
+
+```
+
+
+```{r IL10 by Suicide, LPS_DOSE}
+
+#### IL10-gamma by Anxiety, LPS_DOSE and visit
+IL10Visit1_Suicide <- ggplot(ImputedVisit1, aes(x = IL10, y = Suicide, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2_Suicide <- ggplot(ImputedVisit2, aes(x = IL10, y = Suicide, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3_Suicide <- ggplot(ImputedVisit3, aes(x = IL10, y = Suicide, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Suicide <- ggplot(IMPcyto, aes(x = IL10, y = Suicide, color = factor(caffeine_today)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Suicide") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10all_Suicide
+
+IL10_Suicide <- ggarrange(IL10Visit1_Suicide, IL10Visit2_Suicide, IL10Visit3_Suicide, IL10all_Suicide,   
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10_Suicide.png", IL10_Suicide, width = 15, height = 5)
+
+IL10_Suicide
+
+```
+
+
+## SAVE THE FIGURE TO FILEPATH
+```{r}
+IL10Figures <- ggarrange(IL10all_Anhedonia, IL10all_Anxiety, IL10all_PTSD, IL10all_GI,
+                        IL10all_Positive_Affect, IL10all_Sleep, IL10all_Somatic_Anxiety, IL10all_Suicide, 
+                        ncol = 4, nrow = 2,
+                        common.legend = TRUE, legend = "top")
+
+ggsave("IL10_AllVisits.png", IL10Figures, width = 20, height = 10)
+
+IL10Figures
+
+
+```
+
+
+
+
+####NON IMPUTED ==========================================================================================================================
+####NON IMPUTED
+
+
+#IL10, NONImputed, experimental variables and drugs
+```{r IL10 vs all variables using NON imputed data}
+
+#Experimental Variables
+Model1 <- lmer(IL10 ~ Project + Visit_Number + Plate + LPS_DOSE + silanized_LPS + 
+                        (1 | Subject_ID),
+                        data = NONimpCyto)
+summary(Model1)
+
+
+# Move significant experimental variables to random; Add biological Variables
+Model2 <- lmer(IL10 ~ MeanBMI + SystolicBP + DiastolicBP + PulseRate +
+                 Gender + ApproxAge +
+                 (1 | Subject_ID) + (1|Visit_Number) + (1|LPS_DOSE) + (1|silanized_LPS),
+               data = NONimpCyto)
+summary(Model2)
+
+
+
+```
+
+
+#SEPARATE OUT VISITS FOR GRAPHING
+```{r Non imputed}
+NonIMPVisit1 <- filter(NONimpCyto, Visit_Number == 1)
+NonIMPVisit2 <- filter(NONimpCyto, Visit_Number == 2)
+NonIMPVisit3 <- filter(NONimpCyto, Visit_Number ==3)
+```
+
+#IL10 + Sleep + LPS_DOSE NON imputed
+```{r FIGURES Cytokine by Mood Factor and LPS_DOSE NON IMPUTED}
+#common_y_scale <- scale_y_continuous(limits = c(0, 150))
+#common_x_scale <- scale_x_continuous(limits = c(0, 1))
+  #common_y_scale +
+  #common_x_scale +
+    
+IL10Visit1 <- ggplot(NonIMPVisit1, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2 <- ggplot(NonIMPVisit2, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3 <- ggplot(NonIMPVisit3, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+IL10 <- ggplot(NONimpCyto2, aes(x = IL10, y = Sleep, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "All Visits", x = "IL10", y = "Sleep") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+
+```
+
+## SAVE THE FIGURE TO FILEPATH
+```{r IL10 Sleep by visit and LPSdose}
+IL103 <- ggarrange(IL10Visit1, IL10Visit2, IL10Visit3, IL10, 
+                               ncol = 4, nrow = 1,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10SleepNonImp.png", IL103, width = 15, height = 5)
+
+IL103
+
+```
+
+```{r IL10 by Anxiety, LPS_DOse NonIMP}
+
+#### IL10-gamma by Anxiety, LPS_DOSE and visit
+IL10Visit1b <- ggplot(NonIMPVisit1, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2b <- ggplot(NonIMPVisit2, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3b <- ggplot(NonIMPVisit3, aes(x = IL10, y = Anxiety, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "Anxiety") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+```{r IL10 by GI, LPS_DOse}
+
+#### IL10-gamma by Anxiety, LPS_DOSE and visit
+IL10Visit1c <- ggplot(NonIMPVisit1, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 1", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit2c <- ggplot(NonIMPVisit2, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 2", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+IL10Visit3c <- ggplot(NonIMPVisit3, aes(x = IL10, y = GI, color = factor(LPS_DOSE)))+
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01)+
+  scale_color_discrete()+
+  labs(title = "Visit 3", x = "IL10", y = "GI") + theme(
+  plot.background = element_rect(fill = "white")
+)
+
+```
+
+## SAVE THE FIGURE TO FILEPATH
+```{r}
+IL10Figures <- ggarrange(IL10Visit1, IL10Visit2, IL10Visit3, 
+                             IL10Visit1b, IL10Visit2b, IL10Visit3b,
+                             IL10Visit1c, IL10Visit2c, IL10Visit3c,
+                               ncol = 3, nrow = 3,
+                              common.legend = TRUE, legend = "top")
+
+ggsave("IL10FiguresNonIMP.png", IL10Figures, width = 15, height = 15)
+
+IL10Figures
+
+#probably should re-name the "sleep" category to "insomnia"...
+```

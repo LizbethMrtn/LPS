@@ -1,0 +1,209 @@
+---
+title: "Untitled"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+setwd("/Users/flandree/Documents/02 UCSD Project/LPS Cytokine Data Analysis Pipeline")
+
+#Load Libraries
+```{r libraries}
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(missForest)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(rmarkdown)
+
+library(corrr)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(magrittr)
+library(nFactors)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(lme4)
+library(lmerTest)
+library(nlme)
+
+library(effects)
+library(ggpubr)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/LPS Cytokine Data Analysis Pipeline"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/LPS Cytokine Data Analysis Pipeline"
+
+```
+
+# The data are imputed or not imputed.  They have been natural log transformed.  IL10 outlier removed.  Visit 4 removed
+
+#IFNg by itself
+#IL-10 by itself
+#ML1 = IL2, IL4, IL12p70, IL13 
+#ML2= TNFa, IL1b, IL6, IL8
+
+```{r import data}
+
+LN_IMP_70 = read.xlsx(paste(file_path, "06a LN Transformed Cytokines_LPS0,70.xlsx", sep = "/"), sheet = "LN_IMP_70") 
+ExperimentalCoVar = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "ExperimentalCoVar")
+BioCoVar = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "BioCoVar")
+MoodCoVar = read.xlsx(paste(file_path, "08TransformedCyto_Mood_CoVar.xlsx", sep = "/"), sheet = "MoodCoVar")
+
+
+
+```
+
+```{r Convert Relevant covariables to factors}
+#everything is numeric right now but the binary ones could be factors
+
+CoVar$Project = as.factor(CoVar$Project)
+CoVar$Plate = as.factor(CoVar$Plate)
+CoVar$silanized_LPS = as.factor(CoVar$silanized_LPS)
+CoVar$LPS_DOSE = as.factor(CoVar$LPS_DOSE)
+CoVar$silanized_LPS = as.factor(CoVar$silanized_LPS)
+CoVar$gad7_OverCutoff = as.factor(CoVar$gad7_OverCutoff)
+CoVar$ISI_Interp = as.factor(CoVar$ISI_Interp)
+CoVar$Gender = as.factor(CoVar$Gender)
+CoVar$Antibiotic_Rx = as.factor(CoVar$Antibiotic_Rx)
+CoVar$Antidepressant_Rx = as.factor(CoVar$Antidepressant_Rx)
+CoVar$Antipsychotic_Rx = as.factor(CoVar$Antipsychotic_Rx)
+CoVar$BP_Rx = as.factor(CoVar$BP_Rx)
+CoVar$caffeine_today = as.factor(CoVar$caffeine_today)
+CoVar$cold_flu = as.factor(CoVar$cold_flu)
+CoVar$Diabetes_Rx = as.factor(CoVar$Diabetes_Rx)
+CoVar$Heart_Rx = as.factor(CoVar$Heart_Rx)
+CoVar$Mood_Rx = as.factor(CoVar$Mood_Rx)
+CoVar$nicotine_today = as.factor(CoVar$nicotine_today)
+CoVar$Pain_Rx = as.factor(CoVar$Pain_Rx)
+CoVar$Psych_Rx = as.factor(CoVar$Psych_Rx)
+CoVar$Sleep_Rx = as.factor(CoVar$Sleep_Rx)
+CoVar$Statin_Rx = as.factor(CoVar$Statin_Rx)
+
+#str(CoVar)
+
+str(Imputed_LN)
+
+```
+
+
+#Separate the LPS0 and NonLPS from other doses and the Cytokine Data from other info
+```{r}
+ImputedLN_Base <- filter(Imputed_LN, LPS_DOSE < 3)
+NonImpLN_Base <- filter(NonImp_LN, LPS_DOSE < 3)
+
+ImputedLN_BaseCyto <- ImputedLN_Base[,12:21]
+NonImpLN_BaseCyto <- NonImpLN_Base[,12:21]
+
+```
+
+## Scale the NonLPS and LPS0 together on a 0-1 scale for non imp and imputed data
+```{r 0-1 Scale}
+
+# READ IN THE FUNCTION
+#https://stackoverflow.com/questions/31926022/scaling-r-dataframe-to-0-1-with-na-values
+stdiz = function(x, ...) {(x - min(x, ...)) / (max(x, ...) - min(x, ...))}
+#stdize(x, na.rm = T) # works!
+
+# USE THE FUNCTION
+NonImpLN_BaseCytoScale <- NonImpLN_BaseCyto
+NonImpLN_BaseCytoScale$TNFalpha <- stdiz(NonImpLN_BaseCytoScale$TNFalpha, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL1beta <- stdiz(NonImpLN_BaseCytoScale$IL1beta, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL2 <- stdiz(NonImpLN_BaseCytoScale$IL2, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL4 <- stdiz(NonImpLN_BaseCytoScale$IL4, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL6 <- stdiz(NonImpLN_BaseCytoScale$IL6, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL8 <- stdiz(NonImpLN_BaseCytoScale$IL8, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL10 <- stdiz(NonImpLN_BaseCytoScale$IL10, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL12p70 <- stdiz(NonImpLN_BaseCytoScale$IL12p70, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IL13 <- stdiz(NonImpLN_BaseCytoScale$IL13, na.rm=TRUE)
+NonImpLN_BaseCytoScale$IFNgamma <- stdiz(NonImpLN_BaseCytoScale$IFNgamma, na.rm=TRUE)
+
+
+ImputedLN_BaseCytoScale <- ImputedLN_BaseCyto
+ImputedLN_BaseCytoScale$TNFalpha <- stdiz(ImputedLN_BaseCytoScale$TNFalpha, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL1beta <- stdiz(ImputedLN_BaseCytoScale$IL1beta, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL2 <- stdiz(ImputedLN_BaseCytoScale$IL2, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL4 <- stdiz(ImputedLN_BaseCytoScale$IL4, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL6 <- stdiz(ImputedLN_BaseCytoScale$IL6, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL8 <- stdiz(ImputedLN_BaseCytoScale$IL8, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL10 <- stdiz(ImputedLN_BaseCytoScale$IL10, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL12p70 <- stdiz(ImputedLN_BaseCytoScale$IL12p70, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IL13 <- stdiz(ImputedLN_BaseCytoScale$IL13, na.rm=TRUE)
+ImputedLN_BaseCytoScale$IFNgamma <- stdiz(ImputedLN_BaseCytoScale$IFNgamma, na.rm=TRUE)
+str(ImputedLN_BaseCytoScale)
+```
+
+
+#PUT THE LN-transformed, 0-1Scaled data back into a dataframe
+```{r Add New Cytokine Back with covar info}
+NonImpLN_BaseCytoScale_CoVar <-cbind(NonImpLN_Base[,c(1:11)], NonImpLN_BaseCytoScale)
+ImputedLN_BaseCytoScale_CoVar <-cbind(ImputedLN_Base[,c(1:11)], ImputedLN_BaseCytoScale)
+
+str(NonImpLN_BaseCytoScale_CoVar)
+
+
+```
+
+
+#Create composit scores
+```{r Create "ML1" and "ML2" variables as columns in the 0-1 SCALE LPS0 + non-LPS Cytokine Dataframe}
+#ML1 = IL2, IL4, IL12p70, IL13 
+NonImpLN_BaseCytoScale_CoVar$ML1 = rowMeans(NonImpLN_BaseCytoScale_CoVar[,c(14,15,19,20)], na.rm=TRUE)
+ImputedLN_BaseCytoScale_CoVar$ML1 = rowMeans(ImputedLN_BaseCytoScale_CoVar[,c(14,15,19,20)], na.rm=TRUE)
+
+#IFNg by itself
+#IL-10 by itself
+
+#ML2= TNFa, IL1b, IL6, IL8 
+NonImpLN_BaseCytoScale_CoVar$ML2 <- rowMeans(NonImpLN_BaseCytoScale_CoVar[,c(12,13,16,17)], na.rm=TRUE)
+ImputedLN_BaseCytoScale_CoVar$ML2 <- rowMeans(ImputedLN_BaseCytoScale_CoVar[,c(12,13,16,17)], na.rm=TRUE)
+
+str(NonImpLN_BaseCytoScale_CoVar)
+
+hist(NonImpLN_BaseCytoScale_CoVar$ML1)
+hist(ImputedLN_BaseCytoScale_CoVar$ML1)
+hist(NonImpLN_BaseCytoScale_CoVar$ML2)
+hist(ImputedLN_BaseCytoScale_CoVar$ML2)
+```
+
+#These are LN transformed imputed or not imputed cytokine data; 1 outlier removed from IL10; Scaled 0-1 combining LPS0 and NonLPS.  With Composit scores
+```{r write data to file}
+write_xlsx(NonImpLN_BaseCytoScale_CoVar, paste(file_path, "NonImp_LN_Scale_Cytokine_Composit.xlsx", sep="/"))
+write_xlsx(ImputedLN_BaseCytoScale_CoVar, paste(file_path, "Imputed_LN_Scale_Cytokine_Composit.xlsx", sep="/"))
+```
+
+#Add in the mood and other covariate data
+```{r Add in anhedonic depression}
+CoVar_Base <- CoVar[,c(1, 10:46)]
+
+NonImpLN_BaseCytoScale_CoVar2 <- merge(data.frame(NonImpLN_BaseCytoScale_CoVar), data.frame(CoVar_Base),
+                    by = "Sequence_Number", all = TRUE)
+
+ImputedLN_BaseCytoScale_CoVar2 <- merge(data.frame(ImputedLN_BaseCytoScale_CoVar), data.frame(CoVar_Base),
+                    by = "Sequence_Number", all = TRUE)
+
+str(ImputedLN_BaseCytoScale_CoVar2)
+```
+
+
+#These are LN transformed imputed or not imputed cytokine data; 1 outlier removed from IL10; Scaled 0-1 combining LPS0 and NonLPS.  With Composit scores AND Covariates
+```{r write data to file}
+write_xlsx(NonImpLN_BaseCytoScale_CoVar2, paste(file_path, "NonImp_LN_Scale_Cytokine_Composit_CoVars.xlsx", sep="/"))
+write_xlsx(ImputedLN_BaseCytoScale_CoVar2, paste(file_path, "Imputed_LN_Scale_Cytokine_Composit_CoVars.xlsx", sep="/"))
+```

@@ -1,4 +1,7 @@
-# Cytokine Concentrations in blood following ex vivo LPS 0, 70, 200, or 600 (some samples are non-incubated baseline)  Data from Biorepository
+# Cytokine Concentrations in blood following ex vivo LPS 0, 70, 200, or 600 
+# (some samples are non-incubated baseline)  
+# Data from CESAHM Biorepository 
+VA CESAMH PTSD/TBI Biorepository participants. Adult Veterans (25 -76yo; 27% female) seeking PTSD treatment.
 
 **ORIGINAL DATA (02/2023)**
 RAW DATA Excel File
@@ -63,6 +66,7 @@ https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3
 
 
 **Linear Mixed Effects Regression with Baseline Cytokine Data**
+
 Non LPS (neither incubated nor stimulated)
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/06a_LN_01_LMER_NonLPS
 

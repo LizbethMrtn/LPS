@@ -1,0 +1,1202 @@
+---
+title: 2026 Cytokines
+author: "EIF"
+date: "`r Sys.Date()`"
+output:html_document
+
+ 
+---
+
+#setwd("/Users/flandree/Library/CloudStorage/OneDrive-GrandValleyStateUniversity/Documents/02 UCSD Project/2026 Reanalysis")
+
+#Load Libraries
+```{r libraries}
+library(corrr)
+library(dplyr)
+library(FactoMineR)
+#install.packages("ggeffects")
+library(ggeffects)
+library(ggcorrplot)
+library(ggfortify)
+library(ggplot2)
+library(ggrepel)
+library(knitr)
+library(magrittr)
+library(mice)
+library(missForest)
+library(nFactors)
+library(openxlsx)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(perry)
+library(parallel)
+library(robustbase)
+library(robustHD)
+library(DescTools)
+library(lme4)
+library(lmerTest)
+
+#install.packages("EnvStats")   # run once
+library(EnvStats)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/2026 Reanalysis"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/2026 Reanalysis"
+
+```
+
+#Step 1: Load data
+```{r import data}
+
+OG_MoodAll = read.xlsx(paste(file_path, "2026_MoodAll_BioMed_MoodFactors.xlsx", sep = "/"), sheet = "OG_MoodAll") 
+OG_BioMed = read.xlsx(paste(file_path, "2026_MoodAll_BioMed_MoodFactors.xlsx", sep = "/"), sheet = "OG_BioMed_Covariates") 
+
+Mood_Factors = read.xlsx(paste(file_path, "2026_MoodAll_BioMed_MoodFactors.xlsx", sep = "/"), sheet = "Mood_Factors_AllSeq")
+
+#NonLPS_LN01 = read.xlsx(paste(file_path, "NonLPS_LN01_2026.xlsx", sep = "/"))
+LPS0_LN01 = read.xlsx(paste(file_path, "LPS0_LN_01_2026.xlsx", sep = "/"))
+#LPS4Dose_LN01 = read.xlsx(paste(file_path, "LPS0_LN01_2026.xlsx", sep = "/"))
+```
+
+#create new df withcovars LPS0; OG mood
+```{r Non LPS}
+LPS0_MoodAll <- OG_MoodAll[c(77:227),]
+LPS0_BioMed <- OG_BioMed[c(77:227),]
+
+LPS0_LN01_MoodAll  <- LPS0_LN01[,c(1:7, 10, 12:21)] %>%
+  left_join(OG_MoodAll[,c(1, 10:104)], by = "ROW_Order")
+
+LPS0_LN01_MoodAll_Bio  <- LPS0_LN01_MoodAll %>%
+  left_join(LPS0_BioMed[,c(1, 9:33)], by = "ROW_Order")
+
+#str(LPS0_LN01_MoodAll_Bio)
+
+```
+
+
+#create new df withcovars LPS0; Mood Factors
+```{r Non LPS}
+LPS0_LN01_MoodFactors  <- LPS0_LN01[,c(1:7, 10, 12:21)] %>%
+  left_join(Mood_Factors[,c(1, 7:14)], by = "ROW_Order")
+
+LPS0_LN01_Mood2_Bio  <- LPS0_LN01_MoodFactors %>%
+  left_join(LPS0_BioMed[,c(1, 9:33)], by = "ROW_Order")
+
+#str(LPS0_LN01_Mood2_Bio)
+
+```
+
+#Experimental Covars 
+```{r}
+LPS0_extra <- lmer(IL13 ~ Visit_Number + Project+ Plate + silanized_LPS + (1|Subject_ID), 
+                     data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_extra)
+#IFNgamma
+# Plate         -0.015167   0.006401 63.900837  -2.369  0.02085 *  
+# silanized_LPS -0.064652   0.022094 98.107406  -2.926  0.00426 ** 
+
+#TNFalpha
+#silanized_LPS -6.095e-02  3.014e-02  1.242e+02  -2.022   0.0453 * 
+
+#IL1beta
+#silanized_LPS -9.732e-02  2.952e-02  1.195e+02  -3.297  0.00129 ** 
+
+#IL2
+#Project        0.024430   0.007529 65.132788   3.245  0.00186 **
+
+#IL4
+#Project        0.019191   0.009389 65.001503   2.044  0.04500 * 
+#silanized_LPS -0.072862   0.025310 94.845209  -2.879  0.00493 **
+
+#IL6 ns
+
+#IL8 ns
+
+#IL10 ns
+
+#IL12p70 
+#Project        0.032840   0.009313 64.678475   3.526  0.00078 ***
+#silanized_LPS -0.040821   0.020607 88.354332  -1.981  0.05070 .
+
+#IL13
+#Project        0.037864   0.010706 65.148902   3.537 0.000752 ***
+```
+
+
+#Bio CoVars
+```{r}
+LPS0_Bio <- lmer(IL13~ gender + approx_age + BMI + waist_hip_ratio + (1|Subject_ID), 
+                     data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Bio)
+#IFNgamma ns
+#TNFalpha ns
+
+#IL2
+#gender          -0.200456   0.101111 16.724072  -1.983  0.06410 . 
+#waist_hip_ratio -1.287971   0.664389 20.016183  -1.939  0.06678 . 
+
+#IL4
+#approx_age      -0.0054446  0.0027982 13.3883140  -1.946    0.073 .
+
+#IL6 ns
+
+#IL8 ns
+
+#IL10 ns
+
+#IL12p70
+#gender          -0.186914   0.104909 18.086030  -1.782  0.09160 . 
+#approx_age      -0.005757   0.003079 13.228453  -1.870  0.08385 . 
+
+#IL13
+#approx_age      -0.006103   0.003386 13.967902  -1.803   0.0931 .
+```
+
+
+#Bio CoVars2
+```{r}
+LPS0_Bio <- lmer(IL13 ~ systolicBP + diastolicBP + pulse_rate + (1|Subject_ID), 
+                     data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Bio)
+
+# IFNgamma ns
+# TNFalpha ns
+# IL1beta ns
+# IL2 ns
+# IL4 ns
+# IL6 ns
+# IL8 ns
+# IL10 ns
+# IL12p70 ns
+# IL13
+
+str(LPS0_LN01_MoodAll_Bio)
+
+```
+
+
+#medicines
+```{r}
+LPS0_Meds <- lmer(IL13 ~ cold_flu + caffeine + nicotine + BP_rx + statin + heart_rx + diabetes_rx + 
+                    psych_rx + current_antid + current_mood + current_antipsy + pain_rx + sleep_rx +
+                    antibiotic + prostate_rx + allergies_rx + steroid_rx + (1|Subject_ID), 
+                  data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Meds)
+
+# TNFalpha 
+# heart_rx         -0.137978   0.070331 131.221346  -1.962   0.0519 .  
+# diabetes_rx       0.160887   0.092046 128.345566   1.748   0.0829 . 
+
+# IFNgamma
+# heart_rx        -1.076e-01  6.040e-02  1.286e+02  -1.782   0.0771 .  
+# current_antid    6.433e-02  3.023e-02  1.294e+02   2.128   0.0352 * 
+
+# IL1beta
+# pain_rx          -0.080064   0.030682 124.909506  -2.610   0.0102 *  
+# sleep_rx          0.061613   0.031014 130.191048   1.987   0.0491 * 
+
+#IL2: ns
+
+#IL4: 
+# nicotine        -1.414e-01  5.849e-02  1.311e+02  -2.418   0.0170 *  
+# heart_rx         1.197e-01  6.876e-02  1.232e+02   1.740   0.0843 . 
+
+#IL6: heart_rx         -0.15312    0.08322 131.65585  -1.840    0.068 . 
+
+#IL8
+#pain_rx          -0.079137   0.041475 123.508758  -1.908   0.0587 .  
+#sleep_rx          0.078713   0.042070 130.617758   1.871   0.0636 .  
+#antibiotic        0.506556   0.237225 131.624018   2.135   0.0346 * 
+
+#IL10
+# sleep_rx          0.043566   0.023927 131.465909   1.821   0.0709 . 
+
+#IL12p70 ns
+
+#IL13 current_mood     -0.076000   0.042791  87.439336  -1.776   0.0792 . 
+```
+
+
+#GAD
+```{r}
+LPS0_Mood2 <- lmer(gad7_total ~ 
+                     TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# 
+
+
+#GAD total vs. other covars
+LPS0_Mood2 <- lmer(gad7_total ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate + statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# waist_hip_ratio   8.780401   4.678798 100.918110   1.877 0.063457 .  
+# #gender            4.579608   1.301268  66.113913   3.519 0.000788 ***
+# diastolicBP       0.114603   0.062079 118.795467   1.846 0.067367 .  
+# heart_rx          3.891786   1.973014 126.358082   1.973 0.050735 .  
+# sleep_rx          1.841963   0.901801 125.252079   2.043 0.043197 * 
+
+
+LPS0_Mood2 <- lmer(gad7_OverCutoff ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma +  (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# ns
+
+LPS0_Mood2 <- lmer(gad7_OverCutoff ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate + statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+
+# gender            0.324509   0.119626  66.770066   2.713  0.00848 **
+# systolicBP       -0.010851   0.004114 125.235872  -2.637  0.00941 **
+# diastolicBP       0.018249   0.006322 125.946768   2.887  0.00458 **
+# sleep_rx          0.221013   0.089368 118.723748   2.473  0.01481 * 
+
+```
+
+
+#MASq
+```{r}
+LPS0_Mood2 <- lmer(MASQ_Tot ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number + (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# ns
+# 
+
+#
+LPS0_Mood2 <- lmer(MASQ_Tot ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate + statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# waist_hip_ratio  20.78033    9.88019  76.50398   2.103   0.0387 * 
+# gender           12.42671    3.88774  61.40913   3.196   0.0022 **
+
+```
+
+
+#PTSD_total
+```{r}
+LPS0_Mood2 <- lmer(PTSD_total ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma +
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# ns
+# 
+
+#PTSD_totaltotal vs. other covars
+LPS0_Mood2 <- lmer(PTSD_total ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate + statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# waist_hip_ratio  31.28695   12.88873  78.56791   2.427  0.01749 * 
+# gender           15.94113    4.74431  64.25759   3.360  0.00132 **
+# pulse_rate       -0.25937    0.11970 106.67498  -2.167  0.03247 * 
+# pain_rx           4.19245    2.48873  89.29709   1.685  0.09556 .
+
+```
+
+
+#phq9_total
+```{r}
+LPS0_Mood2 <- lmer(phq9_total ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number + (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# IL2            7.6881     4.5438  99.2746   1.692   0.0938 .  
+# IL10          -8.0147     3.6772  83.7503  -2.180   0.0321 *  
+# Visit_Number  -0.5608     0.2787  70.0210  -2.012   0.0480 * 
+# 
+
+#
+LPS0_Mood2 <- lmer(phq9_total ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate +
+                       statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# gender            2.997140   1.484263  64.424872   2.019   0.0476 *
+# sleep_rx          2.107208   0.822500 107.911228   2.562   0.0118 *
+
+
+LPS0_Mood2 <- lmer(Phq9_Interp ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                       (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# IL10         -1.37114    0.76292  89.07202  -1.797   0.0757 . 
+
+LPS0_Mood2 <- lmer(Phq9_Interp ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate +
+                       statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# waist_hip_ratio   1.748745   0.734843  76.701310   2.380  0.01981 * 
+# gender            0.586462   0.294143  65.843829   1.994  0.05032 . 
+# systolicBP       -0.012597   0.006602  87.743569  -1.908  0.05964 . 
+# sleep_rx          0.432589   0.152622 101.040345   2.834  0.00555 **
+
+LPS0_Mood2 <- lmer(Phq9_Interp ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                       (1|Subject_ID) + (1|current_mood), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# IL10         -1.33377    0.75867  87.80998  -1.758 0.082226 .
+```
+
+
+#ISI_total
+```{r}
+LPS0_Mood2 <- lmer(ISI_total ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# visit
+
+LPS0_Mood2 <- lmer(ISI_total ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+#ns
+
+#
+LPS0_Mood2 <- lmer(ISI_total ~ waist_hip_ratio + gender + approx_age + systolicBP + diastolicBP + pulse_rate + Plate +
+                       statin + heart_rx + sleep_rx + cold_flu + current_mood + pain_rx + antibiotic + allergies_rx + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood2)
+# systolicBP       -0.11224    0.03737  83.54888  -3.004  0.00352 **
+# diastolicBP       0.15577    0.05874  85.52327   2.652  0.00954 **
+# pulse_rate       -0.07463    0.03947  98.80916  -1.891  0.06161 . 
+# heart_rx          4.85708    1.92145 100.57249   2.528  0.01303 *
+
+```
+
+
+#GAD Individual Items
+```{r}
+LPS0_Mood1 <- lmer(IL13 ~ gad1_nervous + gad2_notable + gad3_worry + gad4_trouble+ gad5_restless + gad6_annoyed + gad7_afraid + gad8_difficult + (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood1)
+#IFNgamma: gad7_afraid      0.030322   0.017296 128.557551   1.753    0.082 . 
+#TNFalpha: gad1_nervous   -3.587e-02  2.099e-02  1.385e+02  -1.709  0.08963 .  
+#          gad5_restless   5.485e-02  1.833e-02  1.401e+02   2.993  0.00327 ** 
+#IL1beta: gad5_restless    0.032088   0.018862 140.930784   1.701   0.0911 . 
+#IL2: gad4_trouble    4.132e-02  1.370e-02  1.044e+02   3.016  0.00321 ** 
+#     gad6_annoyed   -2.472e-02  1.099e-02  1.038e+02  -2.248  0.02666 *  
+#IL4: ns
+#IL6: gad8_difficult   0.050523   0.029280 110.975949   1.726   0.0872 . 
+#IL8: gad5_restless   5.383e-02  2.554e-02  1.401e+02   2.108   0.0368 * 
+#IL10: gad8_difficult   0.032152   0.018891 122.564680   1.702   0.0913 .
+#IL12p70: gad1_nervous   -3.257e-02  1.541e-02  8.734e+01  -2.113   0.0374 *
+```
+
+#ISI
+```{r}
+LPS0_Mood1 <- lmer(IL13 ~ Visit_Number + sleep1a_falling + sleep1b_staying + sleep1c_waking + sleep2_satisfied + sleep3_interfere + sleep4_noticeable + sleep5_worried + (1|Subject_ID), data = LPS0_LN01_MoodAll_Bio)
+summary(LPS0_Mood1)
+#TNFalpha
+#sleep3_interfere   -0.037135   0.018741 128.146021  -1.981   0.0497 *  
+#sleep4_noticeable   0.028970   0.015939 132.363290   1.818   0.0714 . 
+
+#IFNgamma
+#sleep3_interfere   -0.028299   0.014247 101.095880  -1.986   0.0497 *  
+#sleep5_worried      0.028850   0.014741 114.407744   1.957   0.0528 . 
+
+#IL1beta ns
+
+#IL2: sleep1b_staying    -0.025397   0.014247 126.113800  -1.783   0.0771 . 
+
+#IL4: sleep1b_staying    -0.039082   0.019040 134.157044  -2.053   0.0421 *  
+#     sleep1c_waking      0.026090   0.013974 130.577070   1.867   0.0641 .  
+#.    sleep4_noticeable  -0.022818   0.013712  95.718515  -1.664   0.0994 .  
+#s.    leep5_worried      0.036471   0.016613 101.805894   2.195   0.0304 *  
+
+#IL6 ns
+
+#IL8: sleep4_noticeable   0.047783   0.021668 127.403953   2.205   0.0292 *  
+
+#IL10: sleep1c_waking     2.304e-02  1.070e-02  1.314e+02   2.154   0.0331 * 
+
+#IL12p70: ns
+
+#IL13: sleep1b_staying   -3.347e-02  1.748e-02  1.130e+02  -1.915   0.0581 .  
+# sleep2_satisfied   2.826e-02  1.613e-02  9.670e+01   1.752   0.0829 . 
+```
+
+
+#MOOD FACTORS#Anhedonia   #Anxiety      #PTSD        #GI   #Affect  #Sleep          #Somatic_Anxiety   #Suicide  #
+```{r}
+LPS0_Mood1 <- lmer(Anhedonia ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# ns
+
+LPS0_Mood1 <- lmer(Anxiety ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Visit_Number  -0.13112    0.04738  76.43541  -2.767  0.00708 **
+
+
+LPS0_Mood1 <- lmer(Anxiety ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                       (1|Subject_ID) + (1|Visit_Number), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# ns
+
+
+LPS0_Mood1 <- lmer(PTSD ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Visit_Number  -0.13152    0.04363  83.85792  -3.015   0.0034 **
+
+LPS0_Mood1 <- lmer(PTSD ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + 
+                     (1|Visit_Number) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#ns
+
+LPS0_Mood1 <- lmer(GI ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# IL12p70       -1.27884    0.68600 137.06795  -1.864   0.0644 .
+
+
+LPS0_Mood1 <- lmer(Affect ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# IL10          -1.18165    0.61768 108.65640  -1.913   0.0584 .
+
+
+LPS0_Mood1 <- lmer(Sleep ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# ns
+
+LPS0_Mood1 <- lmer(Somatic_Anxiety ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# IL6           -0.989493   0.370582 128.069034  -2.670  0.00857 **
+
+LPS0_Mood1 <- lmer(Suicide ~ TNFalpha + IL1beta + IL2 + IL4 + IL6 + IL8 + IL10 + IL12p70 + IL13 + IFNgamma + Visit_Number +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#TNFalpha       1.27918    0.52373 133.90117   2.442   0.0159 *
+```
+
+#MOOD FACTORS#Anhedonia   #Anxiety      #PTSD        #GI   #Affect  #Sleep          #Somatic_Anxiety   #Suicide  #
+#Experimental Covars with Mood Factors
+```{r}
+LPS0_extra <- lmer(Anhedonia ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra)
+# gender            0.488551   0.197663  70.178068   2.472  0.01588 * 
+# waist_hip_ratio   1.605883   0.561955  92.838715   2.858  0.00527 **
+
+LPS0_extra <- lmer(Anxiety ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra)
+# waist_hip_ratio   1.038322   0.573442  89.439110   1.811  0.07355 . 
+# Visit_Number     -0.151422   0.047649  82.844201  -3.178  0.00209 **
+
+LPS0_extra <- lmer(Anxiety ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + (1|Visit_Number) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+# gender            0.534472   0.209028  67.630113   2.557   0.0128 *
+# waist_hip_ratio   1.008285   0.575944  89.218359   1.751   0.0834 .
+
+LPS0_extra <- lmer(PTSD ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + (1|Visit_Number) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+#Visit_Number     -0.141018   0.043349  85.390204  -3.253  0.00164 **]
+#Controlling for visit #
+# gender           5.845e-01  1.870e-01  6.987e+01   3.127  0.00258 **
+#waist_hip_ratio   1.205e+00  5.226e-01  9.203e+01   2.305  0.02339 * 
+#pulse_rate       -9.183e-03  4.894e-03  1.288e+02  -1.876  0.06286 . 
+
+
+LPS0_extra <- lmer(GI ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number +  (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+# gender           3.305e-01  1.895e-01  7.223e+01   1.744   0.0854 .
+# approx_age      -1.279e-02  6.271e-03  6.255e+01  -2.039   0.0457 *
+
+
+LPS0_extra <- lmer(Affect ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+#gender            0.640650   0.202344  70.666709   3.166  0.00228 **
+
+LPS0_extra <- lmer(Sleep ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + (1|Visit_Number) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+#systolicBP       -0.008972   0.004563 101.575270  -1.966  0.05202 . 
+#Visit_Number     -0.113683   0.041284  82.214311  -2.754  0.00725 **
+
+#systolicBP       -0.008133   0.004544 101.806584  -1.790   0.0765 .
+
+LPS0_extra <- lmer(Sleep ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + (1|Visit_Number) +  (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+# systolic trend
+
+LPS0_extra <- lmer(Somatic_Anxiety ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number 
+                     +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+# ns
+
+LPS0_extra <- lmer(Suicide ~ gender + approx_age + BMI + waist_hip_ratio + systolicBP + diastolicBP + pulse_rate + Visit_Number 
+                     +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_extra) 
+# approx_age       -0.011596   0.006728  64.467321  -1.723   0.0896 .
+# waist_hip_ratio   1.460776   0.653162  98.865967   2.236   0.0276 *
+
+
+```
+
+
+#Mood Factors
+```{r}
+LPS0_Mood1 <- lmer(IFNgamma ~ Anhedonia + Anxiety + PTSD + GI + Affect + Sleep + Somatic_Anxiety + Suicide + Visit_Number + gender + approx_age + 
+                     (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Anxiety         -4.462e-02  2.615e-02  1.294e+02  -1.706   0.0903 .  
+# Sleep            5.412e-02  2.510e-02  1.390e+02   2.156   0.0328 *  
+# Suicide          3.378e-02  1.927e-02  1.281e+02   1.753   0.0820 . 
+
+LPS0_Mood1 <- lmer(IL13 ~ Anhedonia + Anxiety + PTSD + GI + Affect + Sleep + Somatic_Anxiety + Suicide + Visit_Number + gender + approx_age + Visit_Number +
+                     (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#TNFalpha
+# gender           -0.069219   0.039836  70.197692  -1.738   0.0867 .  
+
+#IL1beta: ns
+
+#IL2
+#Anxiety          3.886e-02  2.060e-02  1.123e+02   1.886  0.06189 .  
+#PTSD            -4.497e-02  2.076e-02  1.158e+02  -2.167  0.03231 *  
+#gender          -1.199e-01  4.102e-02  7.281e+01  -2.924  0.00461 ** 
+#approx_age      -2.408e-03  1.373e-03  7.222e+01  -1.754  0.08360 . 
+
+#IL4: gender           -0.147100   0.049885  72.060850  -2.949   0.0043 ** 
+
+#IL6: Somatic_Anxiety -6.945e-02  3.209e-02  1.370e+02  -2.164   0.0322 * 
+
+#IL8 ns
+
+#IL10: Anxiety           0.038909   0.022568 138.973802   1.724  0.08691 .  
+#Suicide          -0.029090   0.016692 138.691863  -1.743  0.08358 .  
+#gender           -0.062982   0.030906  68.681805  -2.038  0.04542 *  
+#approx_age       -0.002798   0.001029  66.372784  -2.718  0.00836 ** 
+
+#IL12p70 gender          -1.273e-01  4.958e-02  7.331e+01  -2.567   0.0123 *  
+# approx_age      -3.930e-03  1.659e-03  7.271e+01  -2.368   0.0205 * 
+
+#IL13 gender           -0.159152   0.056524  72.489479  -2.816  0.00627 ** 
+# approx_age       -0.004217   0.001893  71.993260  -2.228  0.02898 *  
+```
+
+#focus on anhedonia, sleep, affect, and ptsd #IFNgamma non-lps LN 01
+#IFNgamma
+```{r}
+LPS0_Mood1 <- lmer(IFNgamma ~ Anhedonia + gender + approx_age + Plate + silanized_LPS + current_antid + Visit_Number + 
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Plate         -1.267e-02  5.651e-03  6.959e+01  -2.242  0.02816 *  
+# silanized_LPS -6.378e-02  2.191e-02  9.565e+01  -2.911  0.00448 ** 
+# current_antid  4.881e-02  2.627e-02  1.417e+02   1.858  0.06520 .  
+
+LPS0_Mood1 <- lmer(IFNgamma ~ Anhedonia*gender + Anhedonia*approx_age + (1 |silanized_LPS) +  
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Anhedonia:approx_age -3.275e-03  1.641e-03  1.387e+02  -1.995    0.048 *  
+
+LPS0_Mood1 <- lmer(IFNgamma ~ Anhedonia*approx_age + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#Anhedonia             1.401e-01  7.646e-02  1.457e+02   1.833   0.0689 .  
+#Anhedonia:approx_age -3.250e-03  1.624e-03  1.397e+02  -2.001   0.0473 *
+
+IFNgamma_Anhedonia_Age <- lmer(IFNgamma ~ Anhedonia*Age_Cat + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(IFNgamma_Anhedonia_Age)
+
+#Plot the Interaction
+eff <- ggeffect(IFNgamma_Anhedonia_Age, terms = c("Anhedonia", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IFNgamma",
+       title = "IFNgamma vs Anhedonia by Age Category") +
+  theme_minimal()
+
+##################################################################
+LPS0_Mood1 <- lmer(IFNgamma ~ PTSD + gender + approx_age + Plate  + current_antid + silanized_LPS + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# Plate          -0.013351   0.005629  69.927909  -2.372  0.02046 *  
+# silanized_LPS  -0.060522   0.021950  97.113046  -2.757  0.00696 ** 
+# current_antid   0.052397   0.026292 141.864189   1.993  0.04819 * 
+
+LPS0_Mood1 <- lmer(IFNgamma ~ PTSD*gender + PTSD*approx_age + Plate  + current_antid + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#Plate           -1.355e-02  5.615e-03  6.646e+01  -2.412   0.0186 *  
+#current_antid    5.225e-02  2.718e-02  1.413e+02   1.922   0.0566 .
+#
+LPS0_Mood1 <- lmer(IFNgamma ~ PTSD*approx_age + (1|Plate) + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IFNgamma ~ Affect + gender + approx_age + Plate + silanized_LPS + current_antid + Visit_Number + 
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# Plate         -1.286e-02  5.666e-03  6.961e+01  -2.270  0.02633 *  
+# silanized_LPS -6.409e-02  2.204e-02  9.724e+01  -2.908  0.00451 ** 
+# current_antid  4.794e-02  2.621e-02  1.417e+02   1.829  0.06943 .  
+#
+LPS0_Mood1 <- lmer(IFNgamma ~ Affect*approx_age + (1|silanized_LPS) + (1|Plate) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+##################################################################
+LPS0_Mood1 <- lmer(IFNgamma ~ Sleep + Anhedonia + gender + approx_age + Plate + silanized_LPS +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#Plate         -1.163e-02  5.723e-03  7.180e+01  -2.031   0.0459 *  
+#silanized_LPS -6.494e-02  2.201e-02  9.492e+01  -2.950   0.0040 ** 
+#current_antid  4.745e-02  2.631e-02  1.409e+02   1.804   0.0734 .  
+
+#silanized_LPS -6.788e-02  2.209e-02  9.675e+01  -3.072  0.00276 ** 
+
+LPS0_Mood1 <- lmer(IFNgamma ~ Sleep*gender + Sleep*approx_age + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+# ns
+
+```
+
+#IL1beta 
+```{r}
+LPS0_Mood1 <- lmer(IL1beta ~ Anhedonia + gender + approx_age + Visit_Number + silanized_LPS + pain_rx + sleep_rx +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#silanized_LPS  -0.100090   0.029386 120.293124  -3.406 0.000897 ***
+#pain_rx        -0.061318   0.026823 142.641782  -2.286 0.023724 *  
+#sleep_rx        0.051407   0.027381 137.343552   1.877 0.062574 .  
+
+LPS0_Mood1 <- lmer(IL1beta ~ Anhedonia*gender + Anhedonia*approx_age + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Anhedonia              0.171496   0.099269 112.450076   1.728   0.0868 .  
+#pain_rx               -0.059293   0.026945 140.699595  -2.201   0.0294 *  
+#sleep_rx               0.047441   0.027523 132.400101   1.724   0.0871 .  
+
+
+LPS0_Mood1 <- lmer(IL1beta ~ Anhedonia + approx_age + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #ns
+# 
+
+##################################################################
+LPS0_Mood1 <- lmer(IL1beta ~ PTSD + gender + approx_age + pain_rx + sleep_rx + (1|silanized_LPS) + 
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) # 
+#silanized_LPS  -0.101647   0.029302 120.879973  -3.469 0.000725 ***
+#pain_rx        -0.064249   0.026844 142.826460  -2.393 0.017992 *  
+#sleep_rx        0.050360   0.027261 139.146499   1.847 0.066825 . 
+
+#pain_rx      -0.064764   0.026759 143.865841  -2.420   0.0168 *  
+# sleep_rx      0.050992   0.027174 139.852065   1.876   0.0627 . 
+
+LPS0_Mood1 <- lmer(IL1beta ~ PTSD*approx_age + PTSD*gender + (1|silanized_LPS) + (1|pain_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#PTSD              0.200995   0.099202 105.125395   2.026   0.0453 *  
+#approx_age       -0.002074   0.001209  67.880239  -1.716   0.0908 . 
+
+LPS0_Mood1 <- lmer(IL1beta ~ PTSD + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#ns
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IL1beta ~ Affect + gender + approx_age + Visit_Number + silanized_LPS + pain_rx + sleep_rx +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) # 
+# silanized_LPS -1.027e-01  2.944e-02  1.226e+02  -3.490 0.000672 ***
+#pain_rx       -5.754e-02  2.689e-02  1.426e+02  -2.140 0.034080 *  
+#sleep_rx       4.767e-02  2.758e-02  1.390e+02   1.728 0.086132 . 
+#
+LPS0_Mood1 <- lmer(IL1beta ~ Affect*approx_age + (1|silanized_LPS:pain_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# ns
+
+##################################################################
+LPS0_Mood1 <- lmer(IL1beta ~ Sleep + gender + approx_age + Visit_Number + silanized_LPS + pain_rx + sleep_rx +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#silanized_LPS  -0.100167   0.029283 121.151862  -3.421 0.000852 ***
+#pain_rx        -0.062990   0.026811 142.766410  -2.349 0.020173 *  
+#sleep_rx        0.050632   0.027310 136.133917   1.854 0.065911 .  
+
+LPS0_Mood1 <- lmer(IL1beta ~ Sleep*gender + Sleep*approx_age + (1|silanized_LPS:pain_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#Sleep              0.195054   0.089032 109.078697   2.191   0.0306 *  
+#approx_age        -0.002364   0.001201  61.355455  -1.968   0.0536 .  
+#Sleep:approx_age  -0.004045   0.001743 108.614009  -2.320   0.0222 *
+
+
+LPS0_Mood1 <- lmer(IL1beta ~ Sleep*approx_age + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#Sleep              0.188889   0.076885 109.823322   2.457  0.01559 *  
+#approx_age        -0.002456   0.001184  64.232574  -2.074  0.04206 *  
+#Sleep:approx_age  -0.003774   0.001710 112.643473  -2.207  0.02935 * 
+
+IL1beta_Sleep_Age <- lmer(IL1beta ~ Sleep*Age_Cat + (1|silanized_LPS) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(IL1beta_Sleep_Age)
+
+#Plot the Interaction
+eff <- ggeffect(IL1beta_Sleep_Age, terms = c("Sleep", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Sleep",
+       y = "Predicted IL1beta") +
+  theme_minimal()
+  
+```
+
+
+#IL2 
+```{r}
+LPS0_Mood1 <- lmer(IL2 ~ Anhedonia + gender + approx_age + Visit_Number + Project + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#gender        -0.100174   0.036489  66.345974  -2.745 0.007772 ** 
+#approx_age    -0.002633   0.001197  63.337210  -2.200 0.031444 *  
+#Project        0.022345   0.006075  68.228352   3.678 0.000464 ***
+
+LPS0_Mood1 <- lmer(IL2 ~ Anhedonia*gender + Anhedonia*approx_age + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#Anhedonia:gender     -4.773e-02  2.845e-02  1.429e+02  -1.678   0.0956 . 
+
+LPS0_Mood1 <- lmer(IL2 ~ Anhedonia*gender + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# Anhedonia          0.07696    0.03810 144.94901   2.020   0.0452 *
+
+IL2_Anhedonia_Gender <- lmer(IL2 ~ Anhedonia*gender + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(IL2_Anhedonia_Gender)
+
+#Plot the Interaction
+eff <- ggeffect(IL2_Anhedonia_Gender, terms = c("Anhedonia", "gender"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IL2") +
+  theme_minimal()
+
+
+
+LPS0_Mood1 <- lmer(IL2 ~ Anhedonia + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+# ns
+##################################################################
+
+LPS0_Mood1 <- lmer(IL2 ~ PTSD + gender + approx_age + Visit_Number + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#gender        -0.084161   0.036476  68.569467  -2.307 0.024062 *  
+#approx_age    -0.002620   0.001185  64.056979  -2.211 0.030612 *  
+#Project        0.022587   0.006020  69.215050   3.752 0.000361 ***
+#ns when controlling for project
+
+LPS0_Mood1 <- lmer(IL2 ~ PTSD*gender + PTSD*approx_age + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) # ns
+
+##################################################################
+LPS0_Mood1 <- lmer(IL2 ~ Affect*gender + Affect*approx_age + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+#gender        -0.095917   0.036525  68.527845  -2.626 0.010646 *  
+#approx_age    -0.002728   0.001191  64.737726  -2.291 0.025212 *  
+#Project        0.022594   0.006021  68.973534   3.752 0.000361 ***
+
+#Affect            -1.152e-01  6.264e-02  1.345e+02  -1.840  0.06798 . 
+# gender            -7.464e-02  3.252e-02  8.339e+01  -2.295  0.02422 * 
+# Affect:gender      7.151e-02  3.458e-02  1.417e+02   2.068  0.04047 * 
+
+IL2_Affect_Gender <- lmer(IL2 ~ Affect*gender + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# Affect         -0.07398    0.04168 144.82929  -1.775   0.0780 .
+# gender         -0.07304    0.03229  85.13625  -2.262   0.0262 *
+#Affect:gender   0.07119    0.03442 142.83834   2.068   0.0404 *
+
+#Plot the Interaction
+eff <- ggeffect(IL2_Affect_Gender, terms = c("Affect", "gender"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Affect",
+       y = "Predicted IL2") +
+  theme_minimal()
+
+##################################################################
+LPS0_Mood1 <- lmer(IL2 ~ Sleep*gender + Sleep*approx_age + (1|Project) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# gender        -0.091611   0.036126  65.705615  -2.536 0.013603 *  
+# approx_age    -0.002660   0.001192  63.742727  -2.232 0.029122 *  
+# Project        0.022600   0.006053  68.801249   3.734 0.000385 ***
+
+#ns when controlling for project
+
+#
+```
+####### ENDED HERE THURS APRIL 2 2026 ###########
+#IL4 non-lps LN 01
+#Pain_rx
+#sleep?
+```{r}
+LPS0_Mood1 <- lmer(IL4 ~ Anhedonia + Visit_Number + Plate + gender + approx_age + systolicBP + antibiotic + heart_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+LPS0_Mood1 <- lmer(IL4 ~ Anhedonia + gender + approx_age + (1|antibiotic) +  
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) ns
+# 
+
+LPS0_Mood1 <- lmer(IL4 ~ Anhedonia*gender + Anhedonia*approx_age +  
+                     +(1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# 
+
+LPS0_Mood1 <- lmer(IL4 ~ Anhedonia*approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL4 ~ Anhedonia*antibiotic+ (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+
+##################################################################
+LPS0_Mood1 <- lmer(IL4 ~ PTSD + Visit_Number + gender + approx_age + antibiotic + heart_rx 
+                     + Plate + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #antibiotic**
+#
+LPS0_Mood1 <- lmer(IL4 ~ PTSD*approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL4 ~ PTSD + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #ns
+##################################################################
+
+LPS0_Mood1 <- lmer(IL4 ~ Affect + Visit_Number + gender + approx_age + systolicBP + Plate + antibiotic + heart_rx +
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+#
+LPS0_Mood1 <- lmer(IL4 ~ Affect + gender + approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL4 ~ Affect*gender + Affect*approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+
+LPS0_Mood1 <- lmer(IL4 ~ Affect*approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+
+LPS0_Mood1 <- lmer(IL4 ~ Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+##################################################################
+LPS0_Mood1 <- lmer(IL4 ~ Sleep + Visit_Number + gender + approx_age + antibiotic + systolicBP + heart_rx + 
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+
+LPS0_Mood1 <- lmer(IL4 ~ Sleep*gender + Sleep*approx_age + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+LPS0_Mood1 <- lmer(IL4 ~ Sleep*approx_age + antibiotic + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+
+#IL6 non-lps LN 01
+#statin
+#sleep? anhedonia
+```{r}
+LPS0_Mood1 <- lmer(IL6 ~ Anhedonia + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# 
+LPS0_Mood1 <- lmer(IL6 ~ Anhedonia*gender + Anhedonia*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #intercept*
+# 
+LPS0_Mood1 <- lmer(IL6 ~ Anhedonia  +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IL6 ~ PTSD + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+LPS0_Mood1 <- lmer(IL6 ~ PTSD*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IL6 ~ Affect + Visit_Number + gender + approx_age + 
+                       (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+#
+LPS0_Mood1 <- lmer(IL6 ~ Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+#
+LPS0_Mood1 <- lmer(IL6 ~ Affect + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+##################################################################
+LPS0_Mood1 <- lmer(IL6 ~ Sleep + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL6 ~ Sleep*gender + Sleep*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+LPS0_Mood1 <- lmer(IL6 ~ Sleep*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+
+#IL8 non-lps LN 01
+#gender, age, waist-hip ratio, BP_rx, heart_rx, current_mood, 
+#GI, sleep
+```{r}
+LPS0_Mood1 <- lmer(IL8 ~ Anhedonia + Visit_Number + gender + approx_age + waist_hip_ratio + 
+                       BP_rx + heart_rx + current_mood + (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# 
+
+LPS0_Mood1 <- lmer(IL8 ~ Anhedonia + gender + waist_hip_ratio + (1|current_mood) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) 
+summary(LPS0_Mood1) 
+#
+
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IL8 ~ PTSD + Visit_Number + gender + approx_age + waist_hip_ratio + 
+                       BP_rx + heart_rx + current_mood + (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+
+
+
+LPS0_Mood1 <- lmer(IL8 ~ PTSD + gender + approx_age + waist_hip_ratio + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+
+
+LPS0_Mood1 <- lmer(IL8 ~ PTSD*gender + PTSD*waist_hip_ratio + (1|current_mood) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+
+LPS0_Mood1 <- lmer(IL8 ~ PTSD*gender + (1|waist_hip_ratio) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+
+##################################################################
+
+LPS0_Mood1 <- lmer(IL8 ~ Anhedonia + Visit_Number + gender + approx_age + waist_hip_ratio + 
+                       BP_rx + heart_rx + current_mood + (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+LPS0_Mood1 <- lmer(IL8 ~ Affect*gender + Affect*waist_hip_ratio + Affect*current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+#
+LPS0_Mood1 <- lmer(IL8 ~ Affect + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+##################################################################
+LPS0_Mood1 <- lmer(IL8 ~ Sleep + Visit_Number + gender + approx_age + waist_hip_ratio + 
+                       BP_rx + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL8 ~ Sleep*gender + waist_hip_ratio + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL8 ~ Sleep + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+#IL10 non-lps LN 01
+#statin, heart rx 
+#affect
+```{r}
+LPS0_Mood1 <- lmer(IL10 ~ Anhedonia + Visit_Number + gender + approx_age + heart_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# 
+
+LPS0_Mood1 <- lmer(IL10 ~ Anhedonia + gender + approx_age + (1|heart_rx) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) #WHR, Gender, no interactions
+summary(LPS0_Mood1) 
+# 
+##################################################################
+
+LPS0_Mood1 <- lmer(IL10 ~ PTSD + Visit_Number + gender + approx_age + heart_rx + (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+
+LPS0_Mood1 <- lmer(IL10 ~ PTSD + gender + approx_age + (1|heart_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+LPS0_Mood1 <- lmer(IL10 ~ PTSD*gender + PTSD*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+##################################################################
+
+LPS0_Mood1 <- lmer(IL10 ~ Affect + Visit_Number + gender + approx_age + heart_rx +  (1|Subject_ID), 
+                     data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+#
+LPS0_Mood1 <- lmer(IL10 ~ Affect*gender + Affect*approx_age + heart_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  
+
+
+LPS0_Mood1 <- lmer(IL10 ~ Affect*approx_age + (1|heart_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+
+LPS0_Mood1 <- lmer(IL10 ~ Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+
+ 
+##################################################################
+LPS0_Mood1 <- lmer(IL10 ~ Sleep + Visit_Number + gender + approx_age + heart_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #heart_rx
+
+LPS0_Mood1 <- lmer(IL10 ~ Sleep*gender + Sleep*approx_age + (1|heart_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #heart_rx
+
+LPS0_Mood1 <- lmer(IL10 ~ Sleep + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+
+#IL12p70 non-lps LN 01
+#statin, sleep_rx; antibiotic
+```{r}
+LPS0_Mood1 <- lmer(IL12p70 ~ Anhedonia + Visit_Number + gender + approx_age + sleep_rx + statin + antibiotic + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #sleep_rx** #antibiotic
+# 
+LPS0_Mood1 <- lmer(IL12p70 ~ Anhedonia*gender + Anhedonia*approx_age + (1|sleep_rx) + (1|antibiotic) +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) #
+summary(LPS0_Mood1) 
+# 
+##################################################################
+
+LPS0_Mood1 <- lmer(IL12p70 ~ PTSD + Visit_Number + gender + approx_age + sleep_rx + statin + antibiotic + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #sleeprx, antibiotic
+#
+LPS0_Mood1 <- lmer(IL12p70 ~ PTSD*gender + PTSD*approx_age + (1|sleep_rx) + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+LPS0_Mood1 <- lmer(IL12p70 ~ PTSD*gender + PTSD*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+##################################################################
+
+LPS0_Mood1 <- lmer(IL12p70 ~ Affect + Visit_Number + gender + approx_age + sleep_rx + antibiotic + statin +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #sleeprx; antibiotic
+#
+LPS0_Mood1 <- lmer(IL12p70 ~ Affect*gender + Affect*approx_age + sleep_rx + antibiotic + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #  sleepRx; antibiotic; affex*approxAge!
+
+
+LPS0_Mood1 <- lmer(IL12p70 ~ Affect*approx_age + (1|antibiotic) + (1|sleep_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+
+LPS0_Mood1 <- lmer(IL12p70 ~ Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+
+
+##################################################################
+LPS0_Mood1 <- lmer(IL12p70 ~ Sleep + Visit_Number + gender + approx_age + sleep_rx + antibiotic + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #sleep_rx and antibiotic**
+
+LPS0_Mood1 <- lmer(IL12p70 ~ Sleep*gender + Sleep*approx_age + (1|sleep_rx) + (1|antibiotic) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #heart_rx
+
+LPS0_Mood1 <- lmer(IL12p70 ~ Sleep + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+#IL13 non-lps LN 01
+#anxiety,GI, suicide, gad7 total, phq9
+```{r}
+LPS0_Mood1 <- lmer(IL13 ~ Anhedonia + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+# 
+LPS0_Mood1 <- lmer(IL13 ~ Anhedonia*gender + Anhedonia*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) #
+summary(LPS0_Mood1) 
+# 
+##################################################################
+
+LPS0_Mood1 <- lmer(IL13 ~ PTSD + Visit_Number + gender + approx_age +  (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+LPS0_Mood1 <- lmer(IL13 ~ PTSD*gender + PTSD*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+##################################################################
+LPS0_Mood1 <- lmer(IL13 ~ Affect + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+LPS0_Mood1 <- lmer(IL13 ~ Affect*gender + Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#Affect trend
+
+LPS0_Mood1 <- lmer(IL13 ~ Affect*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+#
+LPS0_Mood1 <- lmer(IL13 ~ Affect*gender + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+##################################################################
+LPS0_Mood1 <- lmer(IL13 ~ Sleep + Visit_Number + gender + approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL13 ~ Sleep*gender + Sleep*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(IL13 ~ Sleep + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```
+
+
+#TNFalpha non-lps LN 01
+#waist hip ratio; bprx; heartRx; current mood; sleep rx; allergies
+#anxiety; 
+```{r}
+LPS0_Mood1 <- lmer(TNFalpha ~ Anhedonia + Visit_Number + gender + approx_age + waist_hip_ratio + BP_rx + heart_rx + current_mood + sleep_rx + allergies_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+
+LPS0_Mood1 <- lmer(TNFalpha ~ Anhedonia*approx_age + BP_rx + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) #
+summary(LPS0_Mood1) 
+
+
+
+LPS0_Mood1 <- lmer(TNFalpha ~ Anhedonia*approx_age + (1|BP_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio) #
+summary(LPS0_Mood1) 
+
+##################################################################
+
+LPS0_Mood1 <- lmer(TNFalpha ~ PTSD + Visit_Number + gender + approx_age + BP_rx + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+ 
+#---
+LPS0_Mood1 <- lmer(TNFalpha ~ PTSD*approx_age + (1|heart_rx) + (1|current_mood) + (1|BP_rx) + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+
+##################################################################
+LPS0_Mood1 <- lmer(TNFalpha ~ Affect + Visit_Number + gender + approx_age + waist_hip_ratio + BP_rx + heart_rx + current_mood + sleep_rx + allergies_rx + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+
+LPS0_Mood1 <- lmer(TNFalpha ~ Affect*approx_age + BP_rx + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+#
+##################################################################
+LPS0_Mood1 <- lmer(TNFalpha ~ Sleep + Visit_Number + gender + approx_age + BP_rx + heart_rx + current_mood + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) 
+
+LPS0_Mood1 <- lmer(TNFalpha ~ Sleep*approx_age + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1) #
+
+LPS0_Mood1 <- lmer(TNFalpha ~ Sleep + (1|Subject_ID), data = LPS0_LN01_Mood2_Bio)
+summary(LPS0_Mood1)
+#
+```

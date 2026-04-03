@@ -58,12 +58,14 @@ https://github.com/LizbethMrtn/LPS/blob/fcf757e5123085d753fa054cf8d9ff46b24d595f
 https://github.com/LizbethMrtn/LPS/blob/026bd399392bda6c6c5bae39dca5f293d2867df1/04b%20Mood_Factors_na.rm.xlsx
 
 **BaselineCytokineData with all covariates and mood factors**
-Non LPS (neither incubated nor stimulated)
 https://github.com/LizbethMrtn/LPS/blob/78f2d66f98b68ffde563910b2694a4925a9b09a5/05a%20LNscale_Baseline_AllCoVars.xlsx
 https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/05b_FIGURES_BaselineCytokinesMoodData
 
 
 **Linear Mixed Effects Regression with Baseline Cytokine Data**
+Non LPS (neither incubated nor stimulated)
+https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/06a_LN_01_LMER_NonLPS
+
 LPS0 (incubated but not stimulated)
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/LPS0_Baseline
 

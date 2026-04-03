@@ -71,6 +71,7 @@ https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/06a
 LPS0 (incubated but not stimulated)
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/LPS0_Baseline
 
+**PERCENT DIFFERENCE in Cytokine Concentration from LPS 600, 200, or 70 to LPS0**
 
   
 

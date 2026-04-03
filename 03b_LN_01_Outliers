@@ -1,0 +1,471 @@
+---
+title: 2026 Cytokines
+author: "EIF"
+date: "`r Sys.Date()`"
+output:html_document
+
+ 
+---
+setwd("/Users/flandree/Documents/2023 2024 Sabbatical/02 UCSD Project")
+
+#Load Libraries
+```{r libraries}
+library(corrr)
+library(dplyr)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(ggplot2)
+library(ggrepel)
+library(knitr)
+library(magrittr)
+library(mice)
+library(missForest)
+library(nFactors)
+library(openxlsx)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+library(perry)
+library(parallel)
+library(robustbase)
+library(robustHD)
+library(DescTools)
+
+#install.packages("EnvStats")   # run once
+library(EnvStats)
+
+file_path = "/Users/flandree/Library/CloudStorage/OneDrive-GrandValleyStateUniversity/Documents/02 UCSD Project/2026 Reanalysis"
+figure_path = "/Users/flandree/Library/CloudStorage/OneDrive-GrandValleyStateUniversity/Documents/02 UCSD Project/2026 Reanalysis"
+
+```
+
+#Step 1: Load data
+```{r import data}
+
+Imputed_Cytokine_Concentration = read.xlsx(paste(file_path, "2026TransposeIMPUTEDCytokineData.xlsx", sep = "/"), sheet = "Transpose_Impute_Cytokine") 
+
+OG_MoodAll = read.xlsx(paste(file_path, "2026TransposeIMPUTEDCytokineData.xlsx", sep = "/"), sheet = "OG_MoodAll") 
+
+OG_BioMed = read.xlsx(paste(file_path, "2026TransposeIMPUTEDCytokineData.xlsx", sep = "/"), sheet = "OG_BioMed_Covariates") 
+
+str(Imputed_Cytokine_Concentration)
+```
+
+
+#Step 2: Create separate dataframes for Non_LPS, LPS_0, and LPS_Doses
+```{r Create separate dataframes for Baseline/LPS0 and LPS70,200,600 without any of the covariates}
+#STEP 1 = create new data with only the columns we want to normalize
+##COMBINING Non LPS with LPS 0 
+Non_LPS <- subset(Imputed_Cytokine_Concentration, LPS_DOSE == 99)
+LPS_0 <- subset(Imputed_Cytokine_Concentration, LPS_DOSE == 0)
+LPS_4Doses <- subset(Imputed_Cytokine_Concentration, c(LPS_DOSE != 99))
+
+```
+
+
+
+#Step 3a: Natural Log transform Non LPS
+```{r repeat for imputed data}
+str(Non_LPS)
+
+#make it a matrix-- only include actual cytokine info
+Non_LPS_matrix <- as.matrix(Non_LPS [, 12:21])
+head(Non_LPS_matrix)
+hist(Non_LPS_matrix) #includes everything
+
+#natural log transform the matrix
+Non_LPS_LN <- log(Non_LPS_matrix)
+head(Non_LPS_LN)
+hist(Non_LPS_LN) #includes everything
+
+#make it a dataframe again
+#reminder-- these are the  imputed data (includes NA values for some cytokines; ML#b variables have no NA values and are averages of only the individual cytokines relevant to that factor)
+Non_LPS_LN <- as.data.frame(Non_LPS_LN)
+```
+
+
+#Step 3b: Natural Log transform LPS_0
+```{r repeat for imputed data}
+#make it a matrix-- only include actual cytokine info
+LPS_0_matrix <- as.matrix(LPS_0 [, 12:21])
+head(LPS_0_matrix)
+hist(LPS_0_matrix) #includes everything
+
+#natural log transform the matrix
+LPS_0_LN <- log(LPS_0_matrix)
+head(LPS_0_LN)
+hist(LPS_0_LN) #includes everything
+
+#make it a dataframe again
+#reminder-- these are the  imputed data (includes NA values for some cytokines; ML#b variables have no NA values and are averages of only the individual cytokines relevant to that factor)
+LPS_0_LN <- as.data.frame(LPS_0_LN)
+```
+
+
+#Step 3c: Natural Log transform LPS_4Doses
+```{r repeat for imputed data}
+#make it a matrix-- only include actual cytokine info
+LPS_4Doses_matrix <- as.matrix(LPS_4Doses [, 12:21])
+head(LPS_4Doses_matrix)
+hist(LPS_4Doses_matrix) #includes everything
+
+#natural log transform the matrix
+LPS_4Doses_LN <- log(LPS_4Doses_matrix)
+head(LPS_4Doses_LN)
+hist(LPS_4Doses_LN) #includes everything
+
+#make it a dataframe again
+#reminder-- these are the  imputed data (includes NA values for some cytokines; ML#b variables have no NA values and are averages of only the individual cytokines relevant to that factor)
+LPS_4Doses_LN <- as.data.frame(LPS_4Doses_LN)
+```
+
+
+#PUT THE LN-transformed data back into a dataframe
+```{r Add New Cytokine Back with covar info}
+Non_LPS_LN_CoVar <-cbind(Non_LPS[,1:11], Non_LPS_LN)
+
+LPS_0_LN_CoVar <-cbind(LPS_0[,1:11], LPS_0_LN)
+
+LPS_4Doses_LN_CoVar <-cbind(LPS_4Doses[,1:11], LPS_4Doses_LN)
+
+```
+
+#SEARCH for OUTLIERS in NonLPS
+```{r}
+#Outliers in NonImpLN_NonLPS
+# TNFa
+testTNF <- rosnerTest(Non_LPS_LN_CoVar$TNFalpha, k = 3)
+testTNF  
+#IL1b
+testIL1b <- rosnerTest(Non_LPS_LN_CoVar$IL1beta,k = 3)
+testIL1b # 
+#IL2
+testIL2 <- rosnerTest(Non_LPS_LN_CoVar$IL2,k = 3)
+testIL2 
+#IL4
+testIL4 <- rosnerTest(Non_LPS_LN_CoVar$IL4,k = 3)
+testIL4 #
+#IL6
+testIL6 <- rosnerTest(Non_LPS_LN_CoVar$IL6,k = 3)
+testIL6 #none
+#IL8
+testIL8 <- rosnerTest(Non_LPS_LN_CoVar$IL8,k = 3)
+testIL8 #none
+#IL10
+testIL10 <- rosnerTest(Non_LPS_LN_CoVar$IL10,k = 3)
+testIL10 #none
+#IL12
+testIL12 <- rosnerTest(Non_LPS_LN_CoVar$IL12p70,k = 3)
+testIL12  # 
+#IL13
+testIL13 <- rosnerTest(Non_LPS_LN_CoVar$IL13,k = 3)
+testIL13 # 
+#IFN-gamma
+testIFN <- rosnerTest(Non_LPS_LN_CoVar$IFNgamma,k = 3)
+testIFN # 
+
+```
+
+
+#OutlierSearch NonLPS
+```{r}
+rosner_results <- lapply(12:21, function(j) {
+  x <- Non_LPS_LN_CoVar[[j]]
+  rosnerTest(x, k = 3)  # adjust k as needed
+})
+
+# name the list elements by column names
+names(rosner_results) <- names(Non_LPS_LN_CoVar)[12:21]
+
+outliers_list <- lapply(rosner_results, function(res) {
+  stats <- res$all.stats
+  stats[stats$Outlier, c("Obs.Num", "Value")]
+})
+
+outliers_list
+
+```
+
+#Outlier Results LPS0
+```{r}
+rosner_results <- lapply(12:21, function(j) {
+  x <- LPS_0_LN_CoVar[[j]]
+  rosnerTest(x, k = 3)  # adjust k as needed
+})
+
+# name the list elements by column names
+names(rosner_results) <- names(LPS_0_LN_CoVar)[12:21]
+
+LPS0outliers_list <- lapply(rosner_results, function(res) {
+  stats <- res$all.stats
+  stats[stats$Outlier, c("Obs.Num", "Value")]
+})
+
+LPS0outliers_list
+
+
+#Repair IL10 outlier
+LPS_0_LN_CoVar$IL10[33] <- 1.081805170
+
+LPS_0_LN_CoVar$Subject_ID[33]
+```
+
+#Subset 70, 200, 600
+```{r}
+LPS70_LN_CoVar <- subset(LPS_4Doses_LN_CoVar, LPS_DOSE == 70)
+LPS200_LN_CoVar <- subset(LPS_4Doses_LN_CoVar, LPS_DOSE == 200)
+LPS600_LN_CoVar <- subset(LPS_4Doses_LN_CoVar, LPS_DOSE == 600)
+```
+
+##outliers in LPS70
+```{r}
+rosner_results <- lapply(12:21, function(j) {
+  x <- LPS70_LN_CoVar[[j]]
+  rosnerTest(x, k = 3)  # adjust k as needed
+})
+
+# name the list elements by column names
+names(rosner_results) <- names(LPS70_LN_CoVar)[12:21]
+
+LPS70_LN_CoVaroutliers_list <- lapply(rosner_results, function(res) {
+  stats <- res$all.stats
+  stats[stats$Outlier, c("Obs.Num", "Value")]
+})
+
+LPS70_LN_CoVaroutliers_list
+
+str(LPS70_LN_CoVar)
+LPS70_LN_CoVar$Subject_ID[c(24, 49, 141, 57, 113)]
+```
+
+#LPS200 Outliers?
+```{r}
+rosner_results <- lapply(12:21, function(j) {
+  x <- LPS200_LN_CoVar[[j]]
+  rosnerTest(x, k = 3)  # adjust k as needed
+})
+
+# name the list elements by column names
+names(rosner_results) <- names(LPS200_LN_CoVar)[12:21]
+
+LPS200_LN_CoVaroutliers_list <- lapply(rosner_results, function(res) {
+  stats <- res$all.stats
+  stats[stats$Outlier, c("Obs.Num", "Value")]
+})
+
+LPS200_LN_CoVaroutliers_list
+
+LPS70_LN_CoVar$Subject_ID[c(91, 113, 44, 49, 80, 136)]
+```
+
+#outliers LPS600
+```{r}
+rosner_results <- lapply(12:21, function(j) {
+  x <- LPS600_LN_CoVar[[j]]
+  rosnerTest(x, k = 3)  # adjust k as needed
+})
+
+# name the list elements by column names
+names(rosner_results) <- names(LPS600_LN_CoVar)[12:21]
+
+LPS600_LN_CoVaroutliers_list <- lapply(rosner_results, function(res) {
+  stats <- res$all.stats
+  stats[stats$Outlier, c("Obs.Num", "Value")]
+})
+
+LPS600_LN_CoVaroutliers_list
+
+LPS600_LN_CoVar$Subject_ID[c(113, 91, 47, 52, 51, 89, 107, 87, 37, 110)]
+```
+
+
+#VISUALIZE DATA   Histograms LN, non winsorized NON_LPS
+```{r}
+#NON LPS
+par(mfrow = c(2, 5))  # 2 rows x 5 columns of plots for 10 histograms
+for (i in 12:21) {
+  hist(
+    Non_LPS_LN_CoVar[[i]],
+    main = paste("Histogram of", names(Non_LPS_LN_CoVar)[i]),
+    xlab = names(Non_LPS_LN_CoVar)[i]
+  )
+}
+par(mfrow = c(1, 1))  # reset layout
+
+#LPS 0
+par(mfrow = c(2, 5))  # 2 rows x 5 columns of plots for 10 histograms
+for (i in 12:21) {
+  hist(
+    LPS_0_LN_CoVar[[i]],
+    main = paste("Histogram of", names(LPS_0_LN_CoVar)[i]),
+    xlab = names(LPS_0_LN_CoVar)[i]
+  )
+}
+par(mfrow = c(1, 1))  # reset layout
+
+#LPS_4doses
+par(mfrow = c(2, 5))  # 2 rows x 5 columns of plots for 10 histograms
+for (i in 12:21) {
+  hist(
+    LPS_4Doses_LN_CoVar[[i]],
+    main = paste("Histogram of", names(LPS_4Doses_LN_CoVar)[i]),
+    xlab = names(LPS_4Doses_LN_CoVar)[i]
+  )
+}
+par(mfrow = c(1, 1))  # reset layout
+```
+
+
+#Winsorize should happen here
+```{r}
+# library(DescTools)
+# 
+# Non_LPS_LN_CoVar[ , 12:21] <- lapply(
+#   Non_LPS_LN_CoVar[ , 12:21],
+#   Winsorize,
+#   probs = c(0.05, 0.95),
+#   na.rm = TRUE
+# )
+
+#I only removed the one outlier in IL10 
+```
+
+
+#Step 5a: Scale cytokine data from 0 - 1 for Non-LPS
+```{r Scale 01 NonLPS}
+Non_LPS_LN_01 <-Non_LPS_LN_CoVar
+
+#https://stackoverflow.com/questions/31926022/scaling-r-dataframe-to-0-1-with-na-values
+stdiz = function(x, ...) {(x - min(x, ...)) / (max(x, ...) - min(x, ...))}
+#stdize(x, na.rm = T) # works!
+
+
+Non_LPS_LN_01$TNFalpha <- stdiz(Non_LPS_LN_01$TNFalpha, na.rm=TRUE)
+Non_LPS_LN_01$IL1beta <- stdiz(Non_LPS_LN_01$IL1beta, na.rm=TRUE)
+Non_LPS_LN_01$IL2 <- stdiz(Non_LPS_LN_01$IL2, na.rm=TRUE)
+Non_LPS_LN_01$IL4 <- stdiz(Non_LPS_LN_01$IL4, na.rm=TRUE)
+Non_LPS_LN_01$IL6 <- stdiz(Non_LPS_LN_01$IL6, na.rm=TRUE)
+Non_LPS_LN_01$IL8 <- stdiz(Non_LPS_LN_01$IL8, na.rm=TRUE)
+Non_LPS_LN_01$IL10 <- stdiz(Non_LPS_LN_01$IL10, na.rm=TRUE)
+Non_LPS_LN_01$IL12p70 <- stdiz(Non_LPS_LN_01$IL12p70, na.rm=TRUE)
+Non_LPS_LN_01$IL13<- stdiz(Non_LPS_LN_01$IL13, na.rm=TRUE)
+Non_LPS_LN_01$IFNgamma <- stdiz(Non_LPS_LN_01$IFNgamma, na.rm=TRUE)
+
+```
+
+
+#Step 5b: Scale cytokine data from 0 - 1 for Non-LPS
+```{r Scale 01 LPS0}
+LPS0_LN_01 <-LPS_0_LN_CoVar
+
+#https://stackoverflow.com/questions/31926022/scaling-r-dataframe-to-0-1-with-na-values
+stdiz = function(x, ...) {(x - min(x, ...)) / (max(x, ...) - min(x, ...))}
+#stdize(x, na.rm = T) # works!
+
+
+LPS0_LN_01$TNFalpha <- stdiz(LPS0_LN_01$TNFalpha, na.rm=TRUE)
+LPS0_LN_01$IL1beta <- stdiz(LPS0_LN_01$IL1beta, na.rm=TRUE)
+LPS0_LN_01$IL2 <- stdiz(LPS0_LN_01$IL2, na.rm=TRUE)
+LPS0_LN_01$IL4 <- stdiz(LPS0_LN_01$IL4, na.rm=TRUE)
+LPS0_LN_01$IL6 <- stdiz(LPS0_LN_01$IL6, na.rm=TRUE)
+LPS0_LN_01$IL8 <- stdiz(LPS0_LN_01$IL8, na.rm=TRUE)
+LPS0_LN_01$IL10 <- stdiz(LPS0_LN_01$IL10, na.rm=TRUE)
+LPS0_LN_01$IL12p70 <- stdiz(LPS0_LN_01$IL12p70, na.rm=TRUE)
+LPS0_LN_01$IL13<- stdiz(LPS0_LN_01$IL13, na.rm=TRUE)
+LPS0_LN_01$IFNgamma <- stdiz(LPS0_LN_01$IFNgamma, na.rm=TRUE)
+
+```
+
+#Step 5bc: Scale cytokine data from 0 - 1 for Non-LPS
+```{r Scale 01 LPS0}
+LPS_4Doses_LN_01 <-LPS_4Doses_LN_CoVar
+
+#https://stackoverflow.com/questions/31926022/scaling-r-dataframe-to-0-1-with-na-values
+stdiz = function(x, ...) {(x - min(x, ...)) / (max(x, ...) - min(x, ...))}
+#stdize(x, na.rm = T) # works!
+
+
+LPS_4Doses_LN_01$TNFalpha <- stdiz(LPS_4Doses_LN_01$TNFalpha, na.rm=TRUE)
+LPS_4Doses_LN_01$IL1beta <- stdiz(LPS_4Doses_LN_01$IL1beta, na.rm=TRUE)
+LPS_4Doses_LN_01$IL2 <- stdiz(LPS_4Doses_LN_01$IL2, na.rm=TRUE)
+LPS_4Doses_LN_01$IL4 <- stdiz(LPS_4Doses_LN_01$IL4, na.rm=TRUE)
+LPS_4Doses_LN_01$IL6 <- stdiz(LPS_4Doses_LN_01$IL6, na.rm=TRUE)
+LPS_4Doses_LN_01$IL8 <- stdiz(LPS_4Doses_LN_01$IL8, na.rm=TRUE)
+LPS_4Doses_LN_01$IL10 <- stdiz(LPS_4Doses_LN_01$IL10, na.rm=TRUE)
+LPS_4Doses_LN_01$IL12p70 <- stdiz(LPS_4Doses_LN_01$IL12p70, na.rm=TRUE)
+LPS_4Doses_LN_01$IL13<- stdiz(LPS_4Doses_LN_01$IL13, na.rm=TRUE)
+LPS_4Doses_LN_01$IFNgamma <- stdiz(LPS_4Doses_LN_01$IFNgamma, na.rm=TRUE)
+
+```
+
+
+#NON LPS LN 01 Histograms
+```{r}
+
+df_long <- Non_LPS_LN_01[, 12:21] %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value")
+
+ggplot(df_long, aes(x = value)) +
+  geom_histogram(bins = 20, fill = "steelblue", alpha = 0.7) +
+  facet_wrap(~ variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Histograms for Columns 12-21")
+```
+
+
+#LPS0 LN 01 Histograms
+```{r}
+df_long <- LPS0_LN_01[, 12:21] %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value")
+
+ggplot(df_long, aes(x = value)) +
+  geom_histogram(bins = 20, fill = "steelblue", alpha = 0.7) +
+  facet_wrap(~ variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Histograms for Columns 12-21")
+```
+
+
+
+
+#LPS4Doses LN 01 Histograms
+```{r}
+df_long <- LPS_4Doses_LN_01 %>%
+  select(LPS_DOSE, all_of(12:21)) %>%
+  pivot_longer(cols = -LPS_DOSE, names_to = "Variable", values_to = "Value")
+
+ggplot(df_long, aes(x = Value, fill = factor(LPS_DOSE))) +
+  geom_histogram(alpha = 0.6, bins = 30, position = "identity") +
+  facet_wrap(~ Variable, scales = "free") +  # Separate panel per column
+  scale_fill_manual(values = c("0" = "gray", "70" = "blue", "200" = "orange", "600" = "red"),
+                    labels = c("0", "70", "200", "600")) +
+  labs(title = "Histograms of Columns 12-21 by LPS Dose",
+       x = "Value", fill = "LPS Dose") +
+  theme_minimal()
+
+```
+
+
+
+#Write data to file
+```{r CWrite new df to file and check histograms}
+#Write new dataframe to file; these are the non-imputed data; scaled 0-1, natural log transformed; ML#na includes NA if there were missing cytokines; ML#b averages existing cytokines and ignores NAs.
+
+
+write_xlsx(Non_LPS_LN_01, paste(file_path, "NonLPS_LN01_2026.xlsx", sep="/"))
+write_xlsx(LPS0_LN_01, paste(file_path, "LPS0_LN_01_2026.xlsx", sep="/"))
+write_xlsx(LPS_4Doses_LN_01, paste(file_path, "LPS_4Doses_LN_01_2026.xlsx", sep="/"))
+```
+
+
+#Percent Difference of LPS_4Doses_LN_01 Data?
+
+

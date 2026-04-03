@@ -1,6 +1,4 @@
-# Cytokine Concentrations in blood following ex vivo LPS 0, 70, 200, or 600 
-# (some samples are non-incubated baseline)  
-# Data from CESAHM Biorepository 
+# Cytokine Concentrations in blood at baseline or following ex vivo LPS 0, 70, 200, or 600 
 VA CESAMH PTSD/TBI Biorepository participants. Adult Veterans (25 -76yo; 27% female) seeking PTSD treatment.
 
 **ORIGINAL DATA (02/2023)**

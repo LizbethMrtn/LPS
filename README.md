@@ -21,10 +21,6 @@ https://github.com/LizbethMrtn/LPS/blob/63411365fb5d661d37319677cd06cc8c7ad8311d
 LN Transform Cytokine Data
 https://github.com/LizbethMrtn/LPS/blob/57116961fc09259ef8fbf8d94c094569d1abfd57/02b_Transpose_LNTransformed_AllLPS.xlsx
 
-**Separate Baseline Cytokine Data from LPS-Stimulated Cytokine Data**
-Scale Cytokine Data & Create Composite Scores
-https://github.com/LizbethMrtn/LPS/blob/ce24f30cf7d16b914ab6a027df03c98d70cb9c3a/03a_LNscale_BaselineCytokine.xlsx
-
 **Organize CoVariate Data: Experimental, Biological, Lifestyle Factors, Mood Factors**
 https://github.com/LizbethMrtn/LPS/blob/43755e7a1d1ed6d6768a16e6b880a1b711fc18b3/03b_Scaled_Composite_Cytokines
 Experimental Variability:
@@ -45,9 +41,9 @@ Biological Factors:
 
 Lifestyle Factors: Medications, Caffeine or Nicotine use on the day of blood collection
 
-https://github.com/LizbethMrtn/LPS/blob/fcf757e5123085d753fa054cf8d9ff46b24d595f/04a%20Mood_All_Var.xlsx
-https://github.com/LizbethMrtn/LPS/blob/026bd399392bda6c6c5bae39dca5f293d2867df1/04b%20Mood_Factors_na.rm.xlsx
 
+
+**Mood Factors**
 Mood Data: Individual items from GAD7; ISI; MASQ; PHQ9, PCL5_month, PHQ15
 Sorted into 8 mood factors: 
 * PTSD (19 variables from pcl5); 
@@ -58,20 +54,16 @@ Sorted into 8 mood factors:
 * Somatic Anxiety (includes: health9_heart; health8_faint, health7_dizzy, health6_chest)
 * Suicideal Ideation (includes: dep2_down; dep9_dead, and MAS122_suicide)
 * GI-Related Symptoms (includes: health12_constipation, health1_stomach, and health13_nausea)
+https://github.com/LizbethMrtn/LPS/blob/fcf757e5123085d753fa054cf8d9ff46b24d595f/04a%20Mood_All_Var.xlsx
+https://github.com/LizbethMrtn/LPS/blob/026bd399392bda6c6c5bae39dca5f293d2867df1/04b%20Mood_Factors_na.rm.xlsx
 
 **BaselineCytokineData with all covariates and mood factors**
 https://github.com/LizbethMrtn/LPS/blob/78f2d66f98b68ffde563910b2694a4925a9b09a5/05a%20LNscale_Baseline_AllCoVars.xlsx
-
 https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/05b_FIGURES_BaselineCytokinesMoodData
 
+
 **Linear Mixed Effects Regression with Baseline Cytokine Data**
-https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/06a_BaselineIFN_gammaLMER
 
-https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/06b_BaselineIL10_LMER
-
-https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/06c_Baseline_ML1_LMER
-
-https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/06d_Baseline_ML2_LMER
 
 
   

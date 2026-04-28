@@ -87,5 +87,8 @@ LPS0 (incubated but not stimulated)
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/LPS0_Baseline
 
 
-  
+**PERCENT DIFFERENCE FROM BASELINE (LPS0) CYTOKINE**
+Calculate percent change from 600, 200, and 70 vs. LPS0 for 10 cytokines; winsorize extreme values
+https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/124bfd5e58048f86cfdd4bff09ce8159132d6fff/2026%20CalculatePcntDiffWins.Rmd
+
 

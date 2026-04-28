@@ -22,13 +22,12 @@ https://github.com/LizbethMrtn/LPS/blob/63411365fb5d661d37319677cd06cc8c7ad8311d
 LN Transform Cytokine Data
 https://github.com/LizbethMrtn/LPS/blob/57116961fc09259ef8fbf8d94c094569d1abfd57/02b_Transpose_LNTransformed_AllLPS.xlsx
 
-**Organize CoVariate Data: Experimental, Biological, Lifestyle Factors, Mood Factors**
+**ORGANIZE COVARIATES: Experimental, Biological, Lifestyle Factors**
 https://github.com/LizbethMrtn/LPS/blob/43755e7a1d1ed6d6768a16e6b880a1b711fc18b3/03b_Scaled_Composite_Cytokines
 Experimental Variability:
 * Subject
 * Visit number
 * Project (data come from subjects initially enrolled in projects 9, 10, and 15)
-* LPS_DOSE: whether the sample was incubated (LPS_0) or not (Non_LPS)
 * silanized_LPS: whether the vial used was silanized or not
 * Plate: which plate was used to measure cytokines from this specific sample
 
@@ -38,13 +37,28 @@ Biological Factors:
 * PulseRate
 * Diastolic BP
 * Systolic BP
-* Approx Age
+* Approx Age / Age_Cat
 
-Lifestyle Factors: Medications, Caffeine or Nicotine use on the day of blood collection
+Medications
+* Blood Pressure Rx
+* Statin
+* Heart RX
+* Diabetes RX
+* Psych RX (any psychiatric medication)
+* Current antidepressant treatment (e.g. SSRI, SNRI)
+* Current mood stabilizer (e.g. Lithium, Depakote, or other)
+* Current antipsychotic (e.g. Abilify, Risperidone, or other)
+* Pain Rx
+* Antibiotic
+* Prostate Rx
+* Allergies Rx
+* Steroid Rx
 
+Other
+* Caffeine or Nicotine use on the day of blood collection
+* Cold/Flu Status
 
-
-**Mood Factors**
+**MOOD ITEMS AND FACTORS**
 Mood Data: Individual items from GAD7; ISI; MASQ; PHQ9, PCL5_month, PHQ15
 Sorted into 8 mood factors: 
 * PTSD (19 variables from pcl5); 
@@ -58,12 +72,13 @@ Sorted into 8 mood factors:
 https://github.com/LizbethMrtn/LPS/blob/fcf757e5123085d753fa054cf8d9ff46b24d595f/04a%20Mood_All_Var.xlsx
 https://github.com/LizbethMrtn/LPS/blob/026bd399392bda6c6c5bae39dca5f293d2867df1/04b%20Mood_Factors_na.rm.xlsx
 
-**BaselineCytokineData with all covariates and mood factors**
+**BASELINE (NOT INCUBATED) CYTOKINE LMER**
+Cytokine concentrations are imputed and LN transfomed, outliers removed, scaled 0-1
 https://github.com/LizbethMrtn/LPS/blob/78f2d66f98b68ffde563910b2694a4925a9b09a5/05a%20LNscale_Baseline_AllCoVars.xlsx
 https://github.com/LizbethMrtn/LPS/blob/7f0482513497f43cc8246e6688e6f2a6aaf4b0d3/05b_FIGURES_BaselineCytokinesMoodData
 
 
-**Linear Mixed Effects Regression with Baseline Cytokine Data**
+**BASELINE (LPS0) CYTOKINE LMER**
 
 Non LPS (neither incubated nor stimulated)
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/06a_LN_01_LMER_NonLPS

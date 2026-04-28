@@ -91,4 +91,9 @@ https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/2026-Cytokine-LMER/LPS
 Calculate percent change from 600, 200, and 70 vs. LPS0 for 10 cytokines; winsorize extreme values
 https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/124bfd5e58048f86cfdd4bff09ce8159132d6fff/2026%20CalculatePcntDiffWins.Rmd
 
+Linear mixed effects regression with cytokine as percent change from LPS0, Mood factors, and controlling for subject and experimental variables (batch)
+https://github.com/LizbethMrtn/CytokineResponse_PTSD/blob/ca3ab26c270fc9cef12aa8555f5ba04ef135371e/07bPercentDiffLMER.Rmd
+
+Influence of mood on cytokine response to LPS is not simply the result of baseline.
+
 

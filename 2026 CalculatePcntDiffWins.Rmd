@@ -1,0 +1,291 @@
+---
+title: "4.30.25"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load Libraries
+```{r libraries}
+library(rmarkdown)
+library(openxlsx)
+library(dplyr)
+library(tidyverse)
+library(psych)
+library(ggplot2)
+library(magrittr)
+library(stats)
+library(writexl)
+library(ggpubr)
+library(caret)
+library(leaps)
+library(MASS)
+library(robustbase)
+library(robustHD)
+library(DescTools)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/02. PercentDifferenceCytokine"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/02. PercentDifferenceCytokine"
+```
+
+#Import Data
+```{r import data}
+CytokineConcentration = read.xlsx(paste(file_path, "02 TransposeCytokineConcentrations.xlsx", sep = "/"), sheet = "TransposeImpute_LPSCyto")
+```
+
+#copy dataframe so i don't F up the original; only keep data columns
+```{r Cyto Percent Change}
+Cytokine_DF <- CytokineConcentration[,c(4:5,8,12:21)]
+str(Cytokine_DF)
+```
+
+#Calculate Percent Change from cytokines
+```{r Calculate Percent Change from cytokines}
+PcntChange70_0 <- Cytokine_DF %>%
+  group_by(Subject_ID, Visit_Number) %>%
+  mutate(across(
+    c(TNFalpha:IFNgamma),
+    ~ ((. - .[LPS_DOSE == 0]) / .[LPS_DOSE == 0]) * 100,
+    .names = "{.col}_PercentChange"
+  )) %>%
+  filter(LPS_DOSE == 70)
+
+PcntChange200_0 <- Cytokine_DF %>%
+  group_by(Subject_ID, Visit_Number) %>%
+  mutate(across(
+    c(TNFalpha:IFNgamma),
+    ~ ((. - .[LPS_DOSE == 0]) / .[LPS_DOSE == 0]) * 100,
+    .names = "{.col}_PercentChange"
+  )) %>%
+  filter(LPS_DOSE == 200)
+
+PcntChange600_0 <- Cytokine_DF %>%
+  group_by(Subject_ID, Visit_Number) %>%
+  mutate(across(
+    c(TNFalpha:IFNgamma),
+    ~ ((. - .[LPS_DOSE == 0]) / .[LPS_DOSE == 0]) * 100,
+    .names = "{.col}_PercentChange"
+  )) %>%
+  filter(LPS_DOSE == 600)
+```
+
+#bind the 3 percent change df together
+#Cytokine_PcntChange2
+```{r}
+Cytokine_PcntChange <- rbind(PcntChange70_0, PcntChange200_0, PcntChange600_0)
+
+Cytokine_PcntChange2 <- Cytokine_PcntChange[,c(1:3, 14:23)]
+```
+
+
+#Already Calculated percent change from baseline for each cytokine at each dose (70, 200, 600)
+#add cytokine columns to instruction columns; 
+#Write to file
+#PcntChange_Labels
+```{r Merge Cytokine and Info columns}
+# Bind the percent change columns back to the original dataframe
+PcntChange_Labels <- bind_cols(CytokineConcentration[CytokineConcentration$Sequence>230, c(1:10)], Cytokine_PcntChange[,c(14:23)])
+str(PcntChange_Labels)
+
+write_xlsx(PcntChange_Labels, "PcntChange_Labels.xlsx")
+```
+
+#scale the percent change data.  PcntChange_Zdf; write to file; plot histograms; NOTE, these data were not used in LMER calculations
+```{r}
+PcntChange_Z <- scale(PcntChange_Labels[,c(11:20)])
+
+PcntChange_Zdf <- data.frame(PcntChange_Labels[,c(1:10)], PcntChange_Z)
+
+str(PcntChange_Zdf)
+write_xlsx(PcntChange_Zdf, "PcntChange_Zdf.xlsx")
+
+#Value <- c("TNFalpha", "IL1beta", "IL2", "IL4", "IL6", "IL8", "IL10", "IL12p70", "IL13", "IFNgamma")
+#TNFalpha_PercentChange, IL1beta_PercentChange, IL2_PercentChange, IL4_PercentChange,  IL6_PercentChange,IL8_PercentChange, IL10_PercentChange, #IL12p70_PercentChange, IL13_PercentChange, IFNgamma_PercentChange
+
+data_columns <- c("TNFalpha_PercentChange", "IL1beta_PercentChange", "IL2_PercentChange",
+                  "IL4_PercentChange", "IL6_PercentChange", "IL8_PercentChange",
+                  "IL10_PercentChange", "IL12p70_PercentChange", "IL13_PercentChange",
+                  "IFNgamma_PercentChange")
+
+# Reshape data from wide to long format
+df_long <- tidyr::pivot_longer(PcntChange_Zdf, cols = all_of(data_columns), 
+                              names_to = "Cytokine", values_to = "Value")
+
+# Create faceted histograms colored by LPS_DOSE
+hist_plot <- ggplot(df_long, aes(x = Value, fill = factor(LPS_DOSE))) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 75) +
+  facet_wrap(~ Cytokine, scales = "free") +
+  scale_fill_manual(values = c("blue", "red", "green")) +
+  scale_color_manual(values = c("blue", "red", "green"))
+  labs(fill = "LPS Dose") +
+  theme_bw()
+
+ggsave("cytokine_histograms2.pdf", plot = hist_plot, 
+       width = 16, height = 12, units = "in", dpi = 300)
+
+# Save as PNG (raster format)
+ggsave("cytokine_histograms.png", plot = hist_plot,
+       width = 16, height = 12, units = "in", dpi = 600)
+
+hist_plot
+
+# Create faceted histograms colored by LPS_DOSE
+hist_plot <- ggplot(df_long, aes(x = Value, fill = factor(LPS_DOSE))) +
+  geom_histogram(position = "dodge", alpha = 0.8, bins = 30) +
+  facet_wrap(~ Cytokine, scales = "free") +
+  scale_fill_manual(values = c("blue", "red", "green")) +
+  scale_color_manual(values = c("darkblue", "darkred", "darkgreen", linewidth = 1)) 
+  labs(fill = "LPS Dose") +
+  theme_bw()
+
+ggsave("cytokine_histograms4.pdf", plot = hist_plot, 
+       width = 16, height = 12, units = "in", dpi = 300)
+
+hist_plot
+```
+
+
+#IMPORT DATA
+#cytokine concentration data -->  percent change from LPS0 NOTE: THESE DATA ARE NOT SCALED
+```{r import data}
+PcntChangeCytokines = read.xlsx(paste(file_path, "02 TransposePcntChange.xlsx", sep = "/"), sheet = "PcntChangeImputeCyto")
+
+str(PcntChangeCytokines)
+```
+
+#modify structure
+#PcntChangeCytokines (df)
+```{r}
+df <- PcntChangeCytokines[,c(1:21)]
+
+df[,c(4:11)] <- lapply(PcntChangeCytokines[,c(4:11)], as.factor)
+str(df)
+
+```
+
+#Histograms of pcnt difference cytokines
+#df2
+```{r}
+df2 <- df
+
+TNFalpha <- ggplot(data=df2) +
+  geom_histogram(aes(x=TNFalpha, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL1beta <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL1beta, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL6 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL6, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL8 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL8, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL10 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL10, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL12p70 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL12p70, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL13 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL13, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IFNgamma <- ggplot(data=df2) +
+  geom_histogram(aes(x=IFNgamma, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL2 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL2, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+IL4 <- ggplot(data=df2) +
+  geom_histogram(aes(x=IL4, fill=Pcntvs0))+
+  facet_wrap(~Visit_Number)
+```
+
+#Subset df to include only cytokines; 
+```{r}
+Cytokines <-subset(df[,c(12:21)])
+```
+
+#scale cytokines and plot; Z Score didn't do much to normalize the data.
+#VERIFY THAT Z SCORE DOESN"T NORMALIZE DATA MUCH
+```{r}
+# Zdf2 <- scale(Cytokines)
+# 
+# zTNFalpha <- ggplot(data=Zdf2) +
+#    geom_histogram(aes(x=TNFalpha, fill=Pcntvs0))+
+#    facet_wrap(~Visit_Number)
+#  
+# zIL1beta <- ggplot(data=Zdf2) +
+#    geom_histogram(aes(x=IL1beta, fill=Pcntvs0))+
+#    facet_wrap(~Visit_Number)
+#  
+# zIL6 <- ggplot(data=Zdf2) +
+#    geom_histogram(aes(x=IL6, fill=Pcntvs0))+
+#    facet_wrap(~Visit_Number)
+# 
+# zIL8 <- ggplot(data=Zdf2) +
+#    geom_histogram(aes(x=IL8, fill=Pcntvs0))+
+#    facet_wrap(~Visit_Number)
+```
+
+#Winsorize
+```{r}
+Cytokines_Wins <-winsorize(Cytokines, thresh=c(0.01, 0.99),na.rm=FALSE)
+head(Cytokines_Wins)
+```
+
+
+#Add winsorized percent change cytokine data to experimental column info
+```{r}
+Cytokines_Wins <- data.frame(Cytokines_Wins)
+PcntDiff_Wins <- cbind(df2[,c(1:11)], Cytokines_Wins)
+```
+
+#load covariate data; PcntDiffWins_CoVars #write to file
+```{r}
+CoVars = read.xlsx(paste(file_path, "02 CoVars for TransposePcntChange.xlsx", sep = "/"), sheet = "CoVars")
+str(CoVars)
+
+PcntDiffWins_CoVars <- merge(PcntDiff_Wins, CoVars, by = "Sequence")
+str(PcntDiffWins_CoVars)
+```
+#load dataframe #PcntDiffWins_CoVars #df
+```{r }
+df <- read.xlsx("PcntDiffWins_CoVars.xlsx", colNames = TRUE)
+#str(df)
+```
+
+#Update variable structure; PcntDiffWins_CoVars #df; df2
+```{r update relevant variables to factors}
+#copy dataframes so I don't mess them up
+
+df <- PcntDiffWins_CoVars
+df2 <- df
+
+df2[,c(6:11,28, 30:47)] <- lapply(df2[,c(6:11,28, 30:47)], as.factor)
+df2$Pcntvs0 <- relevel(df2$Pcntvs0, ref = "70")
+str(df2)
+```
+
+
+```{r Generate Tables of DemographicData}
+table(df2$Pcntvs0)
+
+
+visit_counts <- df2 %>%
+  group_by(Visit_Number, Age_Cat) %>%
+  summarise(n_subjects = n_distinct(Subject_ID), .groups = "drop")
+
+visit_counts
+```
+
+#write to file
+```{r}
+PcntDiffWins_CoVars <- df2
+write.xlsx(PcntDiffWins_CoVars, "PcntDiffWins_CoVars.xlsx", colNames = TRUE)
+```
+
+

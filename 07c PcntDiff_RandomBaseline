@@ -1,0 +1,939 @@
+---
+title: "4.24.2026 Looking at how much baseline determines the percent difference"
+author: "EIF"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load Libraries
+```{r libraries}
+library(corrr)
+library(DescTools)
+library(dplyr)
+library(ds4psy)
+library(ggeffects)
+library(emmeans)
+library(EnvStats)
+library(FactoMineR)
+library(ggcorrplot)
+library(ggfortify)
+library(ggplot2)
+library(ggpubr)
+library(ggrepel)
+library(interactions)
+library(knitr)
+library(lme4)
+library(lmerTest)
+library(magrittr)
+library(mice)
+library(missForest)
+library(nFactors)
+library(openxlsx)
+library(parallel)
+library(perry)
+library(plyr)
+library(psych)
+library(readr)
+library(rmarkdown)
+library(robustbase)
+library(robustHD)
+library(sjPlot)
+library(stats)
+library(tibble)
+library(tidyr)
+library(tidyselect)
+library(tidyverse)
+library(writexl)
+
+file_path = "/Users/flandree/Documents/02 UCSD Project/2026 Reanalysis"
+figure_path = "/Users/flandree/Documents/02 UCSD Project/2026 Reanalysis"
+
+```
+
+#Load percent change cytokine data
+#cytokine concentration data -->  percent change from LPS0
+```{r import data}
+
+df = read.xlsx(paste(file_path, "PcntDiffWins_CoVars.xlsx", sep = "/"), sheet = "PcntDiffWins_CoVars_vsBaseline")
+str(df)
+```
+
+#modify structure
+```{r}
+df2 <- df
+
+df2[, c(1:9, 20, 37:55)] <- lapply(df2[, c(1:9, 20, 37:55)], factor)
+
+#str(df2)
+
+```
+
+#Histograms of pcnt difference cytokines (1) SKIP
+```{r}
+df3 <- df2
+
+TNFpcntvs0 <- ggplot(df3, aes(x = TNFalpha, fill = Pcntvs0)) +
+  geom_histogram(position = "identity", alpha = 0.5, color = "white") +
+  facet_wrap(~ Visit_Number, scales = "free") +
+  theme_minimal()
+
+print(TNFpcntvs0)
+
+```
+
+
+```{r subset by LPS dose vs. 0}
+#PcntChange70 <- subset(df3, Pcntvs0 == 70)
+#PcntChange200 <- subset(df3, Pcntvs0 == 200)
+#PcntChange600 <- subset(df3, Pcntvs0 == 600)
+
+```
+
+
+#KEEPING ONLY LINES I WANT TO PLOT
+#Anhedonia: IL1beta; IL6; IL8; IFngamma; <- by age
+#Anhedonia& IL1beta 4.24.26
+```{r}
+#=============================================================================================
+IL1beta <- lmer(IL1beta ~ Anhedonia*Pcntvs0 + Anhedonia*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(IL1beta) 
+# Anhedonia            -2268.29     719.98   308.91  -3.151  0.00179 ** 
+# Pcntvs0600             676.70     145.76   319.19   4.643 5.04e-06 ***
+# Pcntvs070            -1016.99     146.95   326.86  -6.921 2.38e-11 ***
+# ApproxAge                8.86      11.37   129.14   0.779  0.43726    
+# Anhedonia:Pcntvs0600   -37.74     201.56   324.60  -0.187  0.85157    
+# Anhedonia:Pcntvs070    -38.34     202.86   330.47  -0.189  0.85023    
+# Anhedonia:ApproxAge     51.09      15.54   344.33   3.288  0.00111 ** 
+IL1beta <- lmer(IL1beta ~ Anhedonia*Pcntvs0 + Anhedonia*ApproxAge + (1|IL1beta_Base) + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(IL1beta) 
+# Anhedonia            -2745.75     776.49   190.12  -3.536 0.000510 ***
+# Pcntvs0600             650.60     123.26   306.29   5.278 2.47e-07 ***
+# Pcntvs070             -980.95     123.46   306.87  -7.946 3.71e-14 ***
+# ApproxAge               18.08      10.85   154.82   1.667 0.097552 .  
+# Anhedonia:Pcntvs0600   -86.23     169.72   310.11  -0.508 0.611783    
+# Anhedonia:Pcntvs070    -39.09     169.95   310.21  -0.230 0.818228    
+# Anhedonia:ApproxAge     58.79      17.04   185.92   3.451 0.000691 ***
+  
+Anhedonia_IL1beta <- lmer(IL1beta ~ Anhedonia*Pcntvs0 + Anhedonia*Age_Cat + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(Anhedonia_IL1beta) 
+# Anhedonia             -653.44     321.73   277.13  -2.031 0.043204 *  
+# Pcntvs0600             673.28     145.41   319.44   4.630 5.32e-06 ***
+# Pcntvs070            -1017.00     146.56   326.71  -6.939 2.13e-11 ***
+# Age_Cat2              -223.79     343.84   267.19  -0.651 0.515699    
+# Age_Cat3               -30.84     367.21   168.73  -0.084 0.933179    
+# Age_Cat4               314.45     409.49   148.22   0.768 0.443762    
+# Anhedonia:Pcntvs0600   -41.89     201.04   324.59  -0.208 0.835055    
+# Anhedonia:Pcntvs070    -38.33     202.32   330.28  -0.189 0.849838    
+# Anhedonia:Age_Cat2     499.03     401.17   327.00   1.244 0.214414    
+# Anhedonia:Age_Cat3     985.65     413.53   287.05   2.384 0.017798 *  
+# Anhedonia:Age_Cat4    2091.41     555.15   347.88   3.767 0.000194 ***
+
+Anhedonia_IL1beta <- lmer(IL1beta ~ Anhedonia*Pcntvs0 + Anhedonia*Age_Cat + (1|IL1beta_Base) + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(Anhedonia_IL1beta) 
+# Intercept)           2617.57     279.13  179.70   9.377  < 2e-16 ***
+# Anhedonia             -728.34     327.18  203.63  -2.226   0.0271 *  
+# Pcntvs0600             649.51     122.87  306.33   5.286 2.38e-07 ***
+# Pcntvs070             -975.92     123.03  306.53  -7.933 4.06e-14 ***
+# Age_Cat2               -54.15     359.75  166.93  -0.151   0.8805    
+# Age_Cat3              -154.29     348.81  145.29  -0.442   0.6589    
+# Age_Cat4               670.83     413.32  161.65   1.623   0.1065    
+# Anhedonia:Pcntvs0600   -90.84     169.08  309.33  -0.537   0.5915    
+# Anhedonia:Pcntvs070    -39.07     169.26  309.14  -0.231   0.8176    
+# Anhedonia:Age_Cat2     501.32     450.45  192.85   1.113   0.2671    
+# Anhedonia:Age_Cat3     747.23     450.56  166.26   1.658   0.0991 .  
+# Anhedonia:Age_Cat4    2431.92     607.36  177.28   4.004 9.14e-05 ***
+  
+slopes <- emtrends(Anhedonia_IL1beta, ~ Age_Cat, var = "Anhedonia", cov.red = FALSE)
+test(slopes)
+# 
+#  Age_Cat Anhedonia.trend  SE  df t.ratio p.value
+#  1                -771.6 315 162  -2.447  0.0155
+#  2                -270.3 343 178  -0.787  0.4322
+#  3                 -24.4 321 147  -0.076  0.9395
+#  4                1660.3 545 173   3.044  0.0027
+
+```
+
+#graphing anhedonia IL1beta 4.24.26
+```{r}
+eff <- ggeffect(Anhedonia_IL1beta, terms = c("Anhedonia", "Age_Cat"))
+plot(eff)+ labs(x = "PTSD", y = "TNFalpha", title = "TNFalpha by PTSD across Age_Cat")+ theme_minimal()
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IL1beta",
+       title = "IL1beta vs Anhedonia by Age Category") +
+  theme_minimal()
+```
+
+
+#Anhedonia, IL6 4.24.26
+```{r}
+#=============================================================================================
+IL6 <- lmer(IL6 ~ Anhedonia*Pcntvs0 + Anhedonia*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df3)
+summary(IL6) 
+# Anhedonia            -13263.374   4149.776    201.336  -3.196  0.00162 ** 
+# Pcntvs0600             6709.171    719.390    279.516   9.326  < 2e-16 ***
+# Pcntvs070             -6417.931    720.111    280.268  -8.912  < 2e-16 ***
+# ApproxAge                 5.843     53.305    184.487   0.110  0.91283    
+# Anhedonia:Pcntvs0600   -549.450    990.917    285.333  -0.554  0.57968    
+# Anhedonia:Pcntvs070     792.802    992.009    286.178   0.799  0.42484    
+# Anhedonia:ApproxAge     288.072     94.068    192.566   3.062  0.00251 ** 
+
+Anhedonia_IL6 <- lmer(IL6 ~ Anhedonia*Pcntvs0 + Anhedonia * Age_Cat + (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df2)
+summary(Anhedonia_IL6)
+# Anhedonia             -4738.0     1637.2   258.1  -2.894  0.00413 ** 
+# Pcntvs0600             6721.6      719.0   280.7   9.349  < 2e-16 ***
+# Pcntvs070             -6412.9      719.6   281.2  -8.912  < 2e-16 ***
+# Age_Cat2               1666.9     1901.5   206.6   0.877  0.38170    
+# Age_Cat3               3155.8     1798.4   195.7   1.755  0.08086 .  
+# Age_Cat4              -1151.3     1989.4   193.1  -0.579  0.56343    
+# Anhedonia:Pcntvs0600   -531.4      990.2   286.5  -0.537  0.59194    
+# Anhedonia:Pcntvs070     791.1      991.2   287.2   0.798  0.42546    
+# Anhedonia:Age_Cat2     2894.4     2331.1   202.1   1.242  0.21580    
+# Anhedonia:Age_Cat3     6414.6     2298.9   194.0   2.790  0.00579 ** 
+# Anhedonia:Age_Cat4     7293.0     3442.6   182.2   2.118  0.03549 *  
+
+#test slopes for Anhedonia*Age Relationship
+slopes <- emtrends(Anhedonia_IL6, ~ Age_Cat, var = "Anhedonia", cov.red = FALSE)
+test(slopes)
+# Age_Cat Anhedonia.trend   SE  df t.ratio p.value
+#  1                 -4674 1590 248  -2.940  0.0036 **; When controlling for baseline: -3.03 p = 0.003
+#  2                 -1191 1570 331  -0.761  0.4474
+#  3                  2073 1520 358   1.368  0.1723
+#  4                  1826 2460 406   0.741  0.4588
+
+eff <- ggeffect(Anhedonia_IL6, terms = c("Anhedonia", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IL6",
+       title = "IL6 vs Anhedonia by Age Category; Control for baseline IL6") +
+  theme_minimal()
+```
+
+#IL8 Anhedonia 4.24.26
+```{r}
+#=============================================================================================
+IL8 <- lmer(IL8 ~ Anhedonia*Pcntvs0 + Anhedonia*Visit_Number + Anhedonia*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS: IL8_Base),
+            data = df2)
+summary(IL8)
+#without baseline IL8 in the model
+# Anhedonia               -483.278    207.284  338.450  -2.331  0.02031 *  
+# Pcntvs0200               297.493     40.357  326.870   7.372 1.39e-12 ***
+# Pcntvs0600               584.885     40.026  320.496  14.612  < 2e-16 ***
+# Visit_Number2            102.081     46.367  403.146   2.202  0.02826 *  
+# Visit_Number3            146.657     65.931  440.966   2.224  0.02663 *  
+# ApproxAge                  6.049      3.356  137.774   1.803  0.07365 .  
+# Anhedonia:Pcntvs0200     -19.930     55.732  329.594  -0.358  0.72087    
+# Anhedonia:Pcntvs0600      -2.782     55.362  324.760  -0.050  0.95995    
+# Anhedonia:Visit_Number2 -108.096     63.397  401.941  -1.705  0.08895 .  
+# Anhedonia:Visit_Number3 -280.911     92.960  440.995  -3.022  0.00266 ** 
+# Anhedonia:ApproxAge       12.196      4.459  366.812   2.735  0.00654 ** 
+
+#when controlling for baseline IL8 (LPS0)
+# Anhedonia               -826.002    234.016  193.224  -3.530 0.000520 ***
+# Pcntvs0600               281.261     36.767  276.307   7.650 3.36e-13 ***
+# Pcntvs070               -297.364     36.767  276.307  -8.088 1.93e-14 ***
+# Visit_Number2            199.319     78.842  188.880   2.528 0.012288 *  
+# Visit_Number3            225.318     97.111  189.921   2.320 0.021392 *  
+# ApproxAge                  8.059      2.916  184.103   2.764 0.006296 ** 
+# Anhedonia:Pcntvs0600      12.438     50.687  281.671   0.245 0.806334    
+# Anhedonia:Pcntvs070       19.821     50.687  281.671   0.391 0.696061    
+# Anhedonia:Visit_Number2   31.668    104.646  191.045   0.303 0.762508    
+# Anhedonia:Visit_Number3 -209.398    134.411  195.377  -1.558 0.120877    
+# Anhedonia:ApproxAge       18.443      5.233  182.071   3.525 0.000536 ***
+
+IL8 <- lmer(IL8 ~ Anhedonia*Pcntvs0 + Anhedonia* ApproxAge + (1|Subject_ID/Visit_Number:LPS_Batch:silanized_LPS), 
+            data = df2)
+summary(IL8)
+# Anhedonia            -653.046    265.231  137.589  -2.462    0.015 *  
+# Pcntvs0200            293.730     36.230  285.698   8.107 1.53e-14 ***
+# Pcntvs0600            576.767     36.230  285.698  15.919  < 2e-16 ***
+# ApproxAge               8.067      3.729   69.218   2.163    0.034 *  
+# Anhedonia:Pcntvs0200  -19.086     49.880  291.355  -0.383    0.702    
+# Anhedonia:Pcntvs0600   -8.115     49.880  291.355  -0.163    0.871    
+# Anhedonia:ApproxAge    14.123      5.851  153.271   2.414    0.017 * 
+
+
+Anhedonia_IL8 <- lmer(IL8 ~ Anhedonia*Pcntvs0 + Anhedonia*Age_Cat + (1|Subject_ID/Visit_Number:LPS_Batch:silanized_LPS), 
+            data = df2)
+summary(Anhedonia_IL8)
+# Anhedonia            -238.794    110.532  118.676  -2.160   0.0328 *  
+# Anhedonia:Age_Cat3    323.158    149.404  135.310   2.163   0.0323 *  
+# Anhedonia:Age_Cat4    523.075    209.219  168.248   2.500   0.0134 * 
+
+#If you have a mixed model (e.g., lmer), use the same approach on the fitted model object:
+
+#Evaluate slopes 
+slopes <- emtrends(Anhedonia_IL8, ~ Age_Cat, var = "Anhedonia", cov.red = FALSE)
+test(slopes)
+#Age_Cat Anhedonia.trend  SE  df t.ratio p.value
+ # 1                -247.9 108 102  -2.298  0.0236 *
+ # 2                -116.8 114 145  -1.025  0.3070
+ # 3                  75.3 106 163   0.711  0.4782
+ # 4                 275.2 182 177   1.511  0.1325
+ 
+#Plot the Interaction
+eff <- ggeffect(Anhedonia_IL8, terms = c("Anhedonia", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IL8",
+       title = "IL8 vs Anhedonia by Age Category") +
+  theme_minimal()
+```
+
+
+#anhedonia IFNgamma, age
+```{r}
+#=============================================================================================
+IFNgamma <- lmer(IFNgamma ~ Anhedonia*Pcntvs0 + Anhedonia*ApproxAge + 
+                   (1|Subject_ID:LPS_Batch:silanized_LPS:IFNgamma_Base), data = df2)
+summary(IFNgamma)
+#ORIGINAL
+#Anhedonia            -97.2570    32.1666 289.0997  -3.024 0.002722 ** 
+# Pcntvs0200            26.3452     6.6960 319.3033   3.934 0.000102 ***
+# Pcntvs0600            32.4983     6.6446 311.0503   4.891 1.61e-06 ***
+# ApproxAge              1.6163     0.5011 118.7735   3.226 0.001624 ** 
+# Anhedonia:Pcntvs0200   1.2236     9.2418 323.5235   0.132 0.894748    
+# Anhedonia:Pcntvs0600   3.8806     9.1854 317.1834   0.422 0.672961    
+# Anhedonia:ApproxAge    2.2983     0.6955 323.6331   3.304 0.001058 ** 
+
+#CONTROLLING FOR BASELINE
+# (Intercept)            67.2010    21.6745  184.4510   3.100 0.002235 ** 
+# Anhedonia            -106.2192    35.4655  182.3970  -2.995 0.003126 ** 
+# Pcntvs0600              7.8861     5.4767  259.8163   1.440 0.151087    
+# Pcntvs070             -26.1064     5.4767  259.8163  -4.767 3.12e-06 ***
+# ApproxAge               1.5189     0.4531  174.3650   3.352 0.000982 ***
+# Anhedonia:Pcntvs0600    2.2509     7.5535  265.0235   0.298 0.765946    
+# Anhedonia:Pcntvs070    -1.0019     7.5535  265.0235  -0.133 0.894577    
+# Anhedonia:ApproxAge     2.8658     0.8095  173.2743   3.540 0.000514 ***
+
+Anhedonia_IFNgamma  <- lmer(IFNgamma  ~ Anhedonia * Age_Cat + (1|Subject_ID:IFNgamma_Base), data = df2)
+summary(Anhedonia_IFNgamma)
+#ORIGINAL
+# Anhedonia            -14.95      13.09 141.70  -1.142 0.255395    
+# Age_Cat2              14.62      16.02 124.27   0.912 0.363435    
+# Age_Cat3              26.99      17.18  77.85   1.571 0.120207    
+# Age_Cat4              37.41      18.30  82.62   2.044 0.044111 *  
+# Anhedonia:Age_Cat2    12.77      17.81 228.28   0.717 0.474044    
+# Anhedonia:Age_Cat3    14.34      17.50 205.65   0.820 0.413373    
+# Anhedonia:Age_Cat4    84.45      23.71 301.13   3.561 0.000429 ***
+
+#CONTROLLING FOR IFNGammaBaseline
+# Anhedonia            -19.89      13.90 143.00  -1.430   0.1548    
+# Age_Cat2              17.37      16.97 143.00   1.024   0.3078    
+# Age_Cat3              37.34      16.00 143.00   2.334   0.0210 *  
+# Age_Cat4              40.98      17.71 143.00   2.314   0.0221 *  
+# Anhedonia:Age_Cat2    34.22      21.40 143.00   1.599   0.1121    
+# Anhedonia:Age_Cat3    27.89      20.12 143.00   1.386   0.1679    
+# Anhedonia:Age_Cat4    84.44      29.89 143.00   2.825   0.0054 ** 
+
+eff <- ggeffect(Anhedonia_IFNgamma , terms = c("Anhedonia", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IFNgamma ",
+       title = "IFNgamma  vs Anhedonia by Age Category") +
+  theme_minimal()
+
+slopes <- emtrends(Anhedonia_IFNgamma, ~ Age_Cat, var = "Anhedonia", cov.red = FALSE)
+test(slopes)
+#ORIGINAL
+ # Age_Cat Anhedonia.trend   SE  df t.ratio p.value
+ # 1               -14.952 13.2 147  -1.133  0.2591
+ # 2                -2.183 13.4 233  -0.162  0.8711
+ # 3                -0.612 11.8 318  -0.052  0.9586
+ # 4                69.500 19.9 398   3.491  0.0005
+
+#after controlling for baseline IFNgamma
+ #Age_Cat Anhedonia.trend   SE  df t.ratio p.value
+ #1                 -19.9 13.9 143  -1.430  0.1548
+ #2                  14.3 16.3 143   0.881  0.3800
+# 3                   8.0 14.5 143   0.550  0.5831
+ #4                  64.5 26.5 143   2.440  0.0159
+
+```
+#===================================================================================================#
+
+#PTSD: IL1beta; IL6; TNFalpha; IL10 <- by age; PTSD no age = IL4
+#PTSD
+```{r}
+IL1beta <- lmer(IL1beta ~ PTSD + Pcntvs0 + PTSD*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(IL1beta)
+# PTSD           -1584.132    646.229   376.537  -2.451   0.0147 *  
+# Pcntvs0600       696.168    143.926   318.585   4.837 2.06e-06 ***
+# Pcntvs070      -1017.103    145.199   326.228  -7.005 1.42e-11 ***
+# ApproxAge          5.119     11.541   130.276   0.444   0.6581    
+# PTSD:ApproxAge    36.414     14.767   355.461   2.466   0.0141 * 
+
+IL1beta <- lmer(IL1beta ~ PTSD + Pcntvs0 + PTSD*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS:IL1beta_Base), data = df3)
+summary(IL1beta)
+#PTSD           -1155.229    755.143   191.192  -1.530 0.127715    
+# Pcntvs0200      1022.929    128.036   266.774   7.989 4.09e-14 ***
+# Pcntvs0600      1696.097    128.036   266.774  13.247  < 2e-16 ***
+# ApproxAge          5.258     10.293   186.190   0.511 0.610059    
+# PTSD:ApproxAge    24.467     17.081   187.498   1.432 0.153688 
+
+PTSD_IL1beta <- lmer(IL1beta ~ PTSD*Age_Cat + Pcntvs0  + (1|Subject_ID:LPS_Batch:silanized_LPS), data = df3)
+summary(PTSD_IL1beta)
+#PTSD           -604.75     274.58  363.07  -2.202 0.028260 *  
+# Age_Cat2       -221.92     344.08  226.91  -0.645 0.519597    
+# Age_Cat3        -35.68     371.68  174.21  -0.096 0.923625    
+# Age_Cat4        231.20     411.64  140.40   0.562 0.575245    
+# Pcntvs0200     1016.71     144.67  325.48   7.028 1.24e-11 ***
+# Pcntvs0600     1710.59     143.41  317.95  11.928  < 2e-16 ***
+# PTSD:Age_Cat2   617.66     403.47  354.27   1.531 0.126695    
+# PTSD:Age_Cat3   743.67     433.29  304.27   1.716 0.087117 .  
+# PTSD:Age_Cat4  1991.30     558.99  290.97   3.562 0.000429 ***
+
+PTSD_IL1beta <- lmer(IL1beta ~ PTSD*Age_Cat + Pcntvs0  + (1|Subject_ID:LPS_Batch:silanized_LPS:IL1beta_Base), data = df3)
+summary(PTSD_IL1beta)
+# PTSD           -506.29     308.43  192.53  -1.642  0.10232    
+# Age_Cat2       -661.91     360.77  187.19  -1.835  0.06814 .  
+# Age_Cat3       -400.91     353.28  187.63  -1.135  0.25791    
+# Age_Cat4         63.53     380.11  185.15   0.167  0.86745    
+# Pcntvs0200     1022.08     127.68  269.38   8.005 3.59e-14 ***
+# Pcntvs0600     1695.16     127.68  269.38  13.277  < 2e-16 ***
+# PTSD:Age_Cat2   596.14     472.96  196.47   1.260  0.20900    
+# PTSD:Age_Cat3   558.72     462.43  183.69   1.208  0.22851    
+# PTSD:Age_Cat4  1655.00     633.29  180.23   2.613  0.00972 ** 
+
+slopes <- emtrends(PTSD_IL1beta, ~ Age_Cat, var = "PTSD", cov.red = FALSE)
+test(slopes)
+ # Age_Cat PTSD.trend  SE  df t.ratio p.value
+ # 1           -506.3 308 200  -1.641  0.1023
+ # 2             89.8 359 207   0.251  0.8024
+ # 3             52.4 345 184   0.152  0.8792
+ # 4           1148.7 553 184   2.077  0.0392
+  
+```
+
+#PTSD IL4 (no age)
+```{r}
+#=============================================================================================
+IL4 <- lmer(IL4 ~ PTSD*Pcntvs0 + (1|Subject_ID:LPS_Batch:Project:silanized_LPS), data = df3)
+summary(IL4) 
+# PTSD             78.5650    29.6604 405.1517   2.649  0.00839 ** 
+#Pcntvs0200      122.8516    22.0628 346.7427   5.568 5.16e-08 ***
+#Pcntvs0600      269.7965    21.8826 338.2670  12.329  < 2e-16 ***
+#PTSD:Pcntvs0200  -0.5007    31.4650 348.7085  -0.016  0.98731    
+#PTSD:Pcntvs0600  22.1187    31.2778 342.3750   0.707  0.47994    
+
+IL4 <- lmer(IL4 ~ PTSD*Pcntvs0 + (1|Subject_ID:LPS_Batch:Project:silanized_LPS:IL4_Base), data = df3)
+summary(IL4) 
+#PTSD               89.83      29.18 314.87   3.078  0.00227 ** 
+#Pcntvs0200        125.51      17.63 274.64   7.119 9.53e-12 ***
+#Pcntvs0600        271.02      17.63 274.64  15.372  < 2e-16 ***
+#PTSD:Pcntvs0200     1.02      25.32 279.98   0.040  0.96789    
+#PTSD:Pcntvs0600    15.14      25.32 279.98   0.598  0.55037 
+  
+#=============================================================================================
+```
+
+
+#PTSD IL6
+```{r}
+#=============================================================================================
+IL6 <- lmer(IL6 ~ PTSD + Pcntvs0 + PTSD*ApproxAge + 
+              (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df3)
+summary(IL6)  # no effect of visit #
+#ORIGINAL
+# PTSD           -9549.86    3369.94   383.68  -2.834  0.00484 ** 
+#Pcntvs0600      6609.62     748.20   326.18   8.834  < 2e-16 ***
+#Pcntvs070      -6498.75     754.87   333.48  -8.609 2.96e-16 ***
+#ApproxAge        -20.05      60.39   138.64  -0.332  0.74038    
+#PTSD:ApproxAge   225.10      77.02   363.85   2.922  0.00369 ** 
+
+#Controlling for IL6baseline
+#PTSD           -9103.23    3814.86   199.20  -2.386   0.0180 *  
+#Pcntvs0600      6754.85     718.41   282.20   9.402  < 2e-16 ***
+#Pcntvs070      -6482.50     718.98   282.77  -9.016  < 2e-16 ***
+#ApproxAge        -21.02      51.99   192.74  -0.404   0.6865    
+#PTSD:ApproxAge   201.21      86.37   194.54   2.330   0.0209 * 
+#
+PTSD_IL6  <- lIL6 <- lmer(IL6 ~ PTSD + Pcntvs0 + PTSD*Age_Cat + 
+              (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df3)
+summary(PTSD_IL6)
+
+#ORIGINAL
+# PTSD            -3706.93    1571.39   410.16  -2.359  0.01879 *  
+# Pcntvs0200       6469.35     760.20   330.84   8.510 6.14e-16 ***
+# Pcntvs0600      13078.15     752.79   323.11  17.373  < 2e-16 ***
+# PTSD:Age_Cat2    4248.61    2119.04   364.52   2.005  0.04570 *  
+# PTSD:Age_Cat3    7435.05    2280.07   317.98   3.261  0.00123 ** 
+# PTSD:Age_Cat4    7862.51    2943.02   305.68   2.672  0.00795 ** 
+
+#CONTROLLING FOR BASELINE IL6
+# PTSD           -3590.9     1561.4   198.9  -2.300   0.0225 *  
+# Pcntvs0600      6749.9      718.2   282.8   9.399   <2e-16 ***
+# Pcntvs070      -6478.0      718.7   283.2  -9.014   <2e-16 ***
+# Age_Cat2         587.3     1773.2   221.0   0.331   0.7408    
+# Age_Cat3        2681.3     1787.5   196.7   1.500   0.1352    
+# Age_Cat4       -1763.8     1914.3   193.3  -0.921   0.3580    
+# PTSD:Age_Cat2   3450.3     2384.3   209.9   1.447   0.1494    
+# PTSD:Age_Cat3   4134.4     2341.2   188.4   1.766   0.0790 .  
+# PTSD:Age_Cat4   6689.1     3193.2   184.2   2.095   0.0376 *  
+
+slopes <- emtrends(PTSD_IL6, ~ Age_Cat, var = "PTSD", cov.red = FALSE)
+test(slopes)
+
+#ORIGINAL
+#  1            -3958 1450 378  -2.731  0.0066 **
+#  2              291 1610 335   0.180  0.8569
+#  3             3477 1780 282   1.952  0.0519 *
+#  4             3905 2580 290   1.514  0.1312
+
+#CONTROL FOR BASELINE IL6
+#1            -3591 1560 199  -2.299  0.0225*
+#2             -141 1800 219  -0.078  0.9379
+#3              544 1740 181   0.312  0.7558
+#4             3098 2790 180   1.112  0.2676
+
+eff <- ggeffect(PTSD_IL6 , terms = c("PTSD", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "PTSD",
+       y = "Predicted IL6 ",
+       title = "IL6  vs PTSD by Age Category") +
+  theme_minimal()
+```
+
+
+#PTSD, IL8, Age <-- Visit number seems to be important here.  Difficult to interpret since there's no PTSD/Visit interaction
+```{r}
+IL8 <- lmer(IL8 ~ PTSD*Pcntvs0 + PTSD*ApproxAge + (1|LPS_Batch:silanized_LPS:IL8_Base), data = df3)
+summary(IL8)
+#PTSD            -554.277    217.305  207.748  -2.551  0.01147 *  
+# Pcntvs0200       301.418     37.040  276.034   8.138 1.39e-14 ***
+# Pcntvs0600       583.806     37.040  276.034  15.761  < 2e-16 ***
+# ApproxAge          6.924      2.932  195.090   2.361  0.01920 *  
+# PTSD:Pcntvs0200   11.131     53.191  281.476   0.209  0.83439    
+# PTSD:Pcntvs0600   35.662     53.191  281.476   0.670  0.50313    
+# PTSD:ApproxAge    12.688      4.866  196.418   2.608  0.00982 ** 
+###### Confusing relationship with Visit #
+
+PTSD_IL8 <- lmer(IL8 ~ PTSD*Pcntvs0 + PTSD*Age_Cat + 
+              (1|Subject_ID/Visit_Number) + (1|LPS_Batch:silanized_LPS), data = df3)
+summary(PTSD_IL8)
+# PTSD            -239.415    104.098  132.648  -2.300  0.02302 *  
+
+slopes <- emtrends(PTSD_IL8, ~ Age_Cat, var = "PTSD", cov.red = FALSE)
+test(slopes)
+ # Age_Cat PTSD.trend  SE    df t.ratio p.value
+ # 1           -182.3 106 144.3  -1.726  0.0865
+ # 2            -42.8 121 137.5  -0.355  0.7229
+ # 3             47.6 123  97.2   0.387  0.6997
+ # 4            210.7 186 131.0   1.131  0.2603
+
+eff <- ggeffect(PTSD_IL8 , terms = "PTSD")
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "PTSD",
+       y = "Predicted IL8 ",
+       title = "IL8  vs PTSD") +
+  theme_minimal()
+```
+
+
+#PTSD IL10
+```{r}
+#=============================================================================================
+IL10 <- lmer(IL10 ~ PTSD*Pcntvs0 + PTSD*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS:IL10_Base), data = df3)
+summary(IL10)
+#===============================ORIGINAL
+# #PTSD            -151.318     72.925  317.298  -2.075   0.0388 *  
+# Pcntvs0200       113.440     18.126  343.190   6.258 1.16e-09 ***
+# Pcntvs0600       166.487     18.007  334.018   9.246  < 2e-16 ***
+# ApproxAge          2.989      1.157  129.679   2.582   0.0109 *  
+# PTSD:Pcntvs0200    8.992     25.840  345.925   0.348   0.7281    
+# PTSD:Pcntvs0600  -16.160     25.715  339.031  -0.628   0.5302    
+# PTSD:ApproxAge     3.769      1.620  285.231   2.326   0.0207 * 
+
+#===============================CONTROLLING FOR IL10_Base
+# PTSD            -93.0049    74.2008 212.3554  -1.253  0.21143    
+# Pcntvs0200      111.9890    17.7403 292.6916   6.313 1.01e-09 ***
+# Pcntvs0600      166.2820    17.7403 292.6916   9.373  < 2e-16 ***
+# ApproxAge         2.7687     0.9849 189.0550   2.811  0.00546 ** 
+# PTSD:Pcntvs0200   6.6991    25.3589 300.6325   0.264  0.79183    
+# PTSD:Pcntvs0600 -19.9841    25.3589 300.6325  -0.788  0.43129    
+# PTSD:ApproxAge    2.7486     1.6373 191.3405   1.679  0.09483 . 
+
+PTSD_IL10  <- lmer(IL10  ~ PTSD*Pcntvs0 + PTSD*Age_Cat + (1|Subject_ID:LPS_Batch:silanized_LPS:IL10_Base), data = df3)
+summary(PTSD_IL10)
+# PTSD             -37.145     33.812 357.806  -1.099  0.27269    
+# Pcntvs0200       113.505     18.073 343.441   6.280 1.02e-09 ***
+# Pcntvs0600       166.230     17.954 334.447   9.259  < 2e-16 ***
+# Age_Cat2          55.989     36.601 204.913   1.530  0.12763    
+# Age_Cat3          52.726     38.647 164.285   1.364  0.17434    
+# Age_Cat4         120.173     42.019 139.553   2.860  0.00489 ** 
+# PTSD:Pcntvs0200    9.005     25.765 346.098   0.349  0.72693    
+# PTSD:Pcntvs0600  -16.262     25.640 339.297  -0.634  0.52635    
+# PTSD:Age_Cat2     27.929     44.726 306.038   0.624  0.53280    
+# PTSD:Age_Cat3     51.068     47.167 248.043   1.083  0.27999    
+# PTSD:Age_Cat4    198.617     60.571 237.503   3.279  0.00120 ** 
+#Controlling for IL10Baseline
+# PTSD             -19.172     33.495 280.556  -0.572  0.56753    
+# Pcntvs0200       112.026     17.680 294.858   6.336 8.79e-10 ***
+# Pcntvs0600       166.323     17.680 294.858   9.407  < 2e-16 ***
+# Age_Cat2          32.547     35.029 192.052   0.929  0.35398    
+# Age_Cat3          53.370     34.319 192.670   1.555  0.12156    
+# Age_Cat4         114.330     36.812 188.846   3.106  0.00219 ** 
+# PTSD:Pcntvs0200    6.701     25.274 302.698   0.265  0.79108    
+# PTSD:Pcntvs0600  -19.966     25.274 302.698  -0.790  0.43015    
+# PTSD:Age_Cat2     65.792     46.472 209.077   1.416  0.15835    
+# PTSD:Age_Cat3     23.354     44.694 186.052   0.523  0.60192    
+# PTSD:Age_Cat4    183.773     60.938 180.690   3.016  0.00293 ** 
+
+
+slopes <- emtrends(PTSD_IL10, ~ Age_Cat, var = "PTSD", cov.red = FALSE)
+test(slopes)
+ # Age_Cat PTSD.trend   SE  df t.ratio p.value
+ # 1            -39.6 30.6 299  -1.293  0.1969
+ # 2            -11.6 33.7 298  -0.345  0.7302
+ # 3             11.5 36.3 223   0.317  0.7516
+ # 4            159.1 52.6 228   3.022  0.0028 **
+
+ #Age_Cat PTSD.trend   SE  df t.ratio p.value
+ #1          -23.593 30.2 201  -0.782  0.4351
+ #2           42.199 35.4 215   1.192  0.2344
+ #3           -0.239 33.0 174  -0.007  0.9942
+# 4          160.180 53.0 175   3.023  0.0029**
+```
+
+
+#PTSD TNFalpha
+```{r}
+#=============================================================================================
+TNFalpha <- lmer(TNFalpha ~ PTSD*Pcntvs0 + PTSD*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS:TNFalpha_Base), data = df3)
+summary(TNFalpha) #  ns without age in model
+# PTSD            -3449.39    1545.82   386.64  -2.231   0.0262 *  
+# Pcntvs0200       3034.53     345.47   331.40   8.784   <2e-16 ***
+# Pcntvs0600       5659.97     342.18   323.29  16.541   <2e-16 ***
+# ApproxAge          47.10      27.14   134.95   1.735   0.0850 .  
+# PTSD:Pcntvs0200   107.62     492.85   332.90   0.218   0.8273    
+# PTSD:Pcntvs0600   367.88     489.35   326.74   0.752   0.4527    
+# PTSD:ApproxAge     81.77      34.71   358.67   2.356   0.0190 *
+
+#CONTROLLING FOR TNFalpha Baseline
+# PTSD            -2293.37    1726.69   206.94  -1.328   0.1856    
+# Pcntvs0600       2686.75     313.95   277.31   8.558 7.99e-16 ***
+# Pcntvs070       -3044.79     313.95   277.31  -9.698  < 2e-16 ***
+# ApproxAge          49.56      23.24   192.67   2.132   0.0343 *  
+# PTSD:Pcntvs0600   186.39     450.52   283.29   0.414   0.6794    
+# PTSD:Pcntvs070   -121.93     450.52   283.29  -0.271   0.7869    
+# PTSD:ApproxAge     60.78      38.58   194.16   1.575   0.1168    
+
+
+PTSD_TNFalpha  <- lmer(TNFalpha  ~ PTSD + Pcntvs0 + PTSD*Age_Cat + (1|Subject_ID:LPS_Batch:silanized_LPS:TNFalpha_Base), data = df3)
+summary(PTSD_TNFalpha)
+# PTSD             -2060.0      705.1   408.2  -2.922 0.003675 ** 
+# PTSD:Age_Cat2     3187.8      950.2   361.5   3.355 0.000878 ***
+# PTSD:Age_Cat3     3269.6     1021.9   314.0   3.200 0.001517 ** 
+# PTSD:Age_Cat4     2810.7     1318.8   301.5   2.131 0.033877 * 
+
+#CONTROLLING FOR TNFalpha BASELINE
+# PTSD             -1282.8      747.7   249.0  -1.716  0.08747 .  
+# Pcntvs0600        2686.5      313.2   279.3   8.579 6.74e-16 ***
+# Pcntvs070        -3043.3      313.2   279.3  -9.718  < 2e-16 ***
+# Age_Cat2          1546.4      819.5   193.7   1.887  0.06064 .  
+# Age_Cat3          2308.3      802.5   194.2   2.876  0.00447 ** 
+# Age_Cat4          1280.6      863.0   191.4   1.484  0.13950    
+# PTSD:Pcntvs0600    186.1      449.4   285.3   0.414  0.67900    
+# PTSD:Pcntvs070    -121.3      449.4   285.3  -0.270  0.78743    
+# PTSD:Age_Cat2     2465.1     1076.1   204.2   2.291  0.02300 *  
+# PTSD:Age_Cat3     2095.3     1049.7   189.7   1.996  0.04735 *  
+# PTSD:Age_Cat4     1363.9     1436.6   185.9   0.949  0.34363 
+
+slopes <- emtrends(PTSD_TNFalpha, ~ Age_Cat, var = "PTSD", cov.red = FALSE)
+test(slopes)
+ # Age_Cat PTSD.trend   SE  df t.ratio p.value
+ # 1            -1901  650 376  -2.924  0.0037 **
+ # 2             1287  722 334   1.782  0.0757 trend
+ # 3             1369  798 280   1.716  0.0873 trend
+ # 4              910 1160 287   0.788  0.4316
+#CONTROLLING FOR BASELINE
+ # Age_Cat PTSD.trend   SE  df t.ratio p.value
+ # 1            -1261  701 200  -1.798  0.0737
+ # 2             1204  816 208   1.475  0.1418
+ # 3              834  781 183   1.068  0.2871
+ # 4              103 1250 182   0.082  0.9348
+
+eff <- ggeffect(PTSD_TNFalpha , terms = c("PTSD", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "PTSD",
+       y = "Predicted TNFalpha ",
+       title = "TNFalpha  vs PTSD by Age Category") +
+  theme_minimal()
+
+```
+
+
+#Neg Affect IL6, Dose, Age
+```{r}
+#=============================================================================================
+Negative_Affect_IL6 <- lmer(IL6 ~ Negative_Affect*Pcntvs0 + Negative_Affect*ApproxAge +
+              (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df2)
+summary(Negative_Affect_IL6)
+# Negative_Affect            -7493.25    3142.99   234.22  -2.384 0.017918 *  
+# Pcntvs0200                  6476.78     761.04   332.93   8.510    6e-16 ***
+# Pcntvs0600                 13096.77     754.70   325.62  17.354  < 2e-16 ***
+# ApproxAge                    -46.20      57.98   129.44  -0.797 0.427038    
+# Negative_Affect:Pcntvs0200  -676.15     959.00   320.50  -0.705 0.481285    
+# Negative_Affect:Pcntvs0600 -1625.33     951.40   313.48  -1.708 0.088561 .  
+# Negative_Affect:ApproxAge    155.55      66.83   226.36   2.328 0.020812 *
+
+
+#CONTROLLING FOR IL6_Baseline
+# Negative_Affect            -8839.20    3029.01   196.05  -2.918  0.00393 ** 
+# Pcntvs0600                  6748.38     715.42   279.99   9.433  < 2e-16 ***
+# Pcntvs070                  -6473.33     715.99   280.56  -9.041  < 2e-16 ***
+# ApproxAge                    -39.30      49.16   186.18  -0.800  0.42501    
+# Negative_Affect:Pcntvs0600 -1115.85     905.17   269.99  -1.233  0.21874    
+# Negative_Affect:Pcntvs070    699.34     905.20   270.02   0.773  0.44045    
+# Negative_Affect:ApproxAge    164.21      64.92   180.94   2.529  0.01228 * 
+
+
+Negative_Affect_IL6 <- lmer(IL6 ~ Negative_Affect*Pcntvs0 + Negative_Affect*Age_Cat +
+              (1|Subject_ID:LPS_Batch:silanized_LPS:IL6_Base), data = df2)
+summary(Negative_Affect_IL6)
+# Negative_Affect            -3143.62    1528.63   242.94  -2.056   0.0408 *  
+# Pcntvs0200                  6477.59     760.81   330.86   8.514 5.97e-16 ***
+# Pcntvs0600                 13098.54     754.58   323.78  17.359  < 2e-16 ***
+# Age_Cat2                     -68.72    1753.05   244.58  -0.039   0.9688    
+# Age_Cat3                     423.39    1989.31   175.40   0.213   0.8317    
+# Age_Cat4                   -2770.86    2068.58   136.95  -1.340   0.1826    
+# Negative_Affect:Pcntvs0200  -676.47     958.69   318.44  -0.706   0.4809    
+# Negative_Affect:Pcntvs0600 -1634.01     951.16   311.40  -1.718   0.0868 .  
+# Negative_Affect:Age_Cat2    1750.34    2412.33   246.77   0.726   0.4688    
+# Negative_Affect:Age_Cat3    5278.72    2276.96   268.60   2.318   0.0212 *  
+# Negative_Affect:Age_Cat4    3716.51    2522.23   181.35   1.474   0.1423   
+
+#CONTROLLING FOR BASELINE IL6
+# Negative_Affect             -4860.6     1430.0   242.7  -3.399  0.00079 ***
+# Pcntvs0600                   6748.3      713.0   281.9   9.464  < 2e-16 ***
+# Pcntvs070                   -6468.9      713.5   282.4  -9.066  < 2e-16 ***
+# Age_Cat2                      806.2     1733.0   218.6   0.465  0.64224    
+# Age_Cat3                     3046.2     1802.8   196.8   1.690  0.09268 .  
+# Age_Cat4                    -2068.4     1798.5   189.1  -1.150  0.25155    
+# Negative_Affect:Pcntvs0600  -1116.1      902.2   271.8  -1.237  0.21713    
+# Negative_Affect:Pcntvs070     697.7      902.2   271.8   0.773  0.44003    
+# Negative_Affect:Age_Cat2     4878.9     2493.1   178.5   1.957  0.05191 .  
+# Negative_Affect:Age_Cat3     4912.7     2326.3   178.1   2.112  0.03609 *  
+# Negative_Affect:Age_Cat4     4797.4     2364.3   177.8   2.029  0.04394 * 
+
+slopes <- emtrends(Negative_Affect_IL6, ~ Age_Cat, var = "Negative_Affect", cov.red = FALSE)
+test(slopes)
+ # Age_Cat Negative_Affect.trend   SE  df t.ratio p.value
+ # 1                       -3914 1440 202  -2.718  0.0071 **
+ # 2                       -2163 1960 280  -1.106  0.2698
+ # 3                        1365 1780 331   0.767  0.4434
+ # 4                        -197 2080 181  -0.095  0.9246
+
+#Controlling for baseline IL6
+#Age_Cat Negative_Affect.trend   SE  df t.ratio p.value
+# 1                     -5000.0 1330 187  -3.754  0.0002***
+# 2                      -121.2 2100 177  -0.058  0.9541
+# 3                       -87.3 1910 173  -0.046  0.9635
+# 4                      -202.7 1950 173  -0.104  0.9175
+
+```
+
+
+#neg affect IL13, Age
+```{r}
+#=============================================================================================
+Negative_Affect_IL13 <- lmer(IL13 ~ Negative_Affect*Pcntvs0 + Negative_Affect*ApproxAge + 
+                               (1|Subject_ID:LPS_Batch:silanized_LPS:IL13_Base), data = df3)
+summary(Negative_Affect_IL13)
+# Negative_Affect             76.5540    35.4260 248.3223   2.161   0.0317 *  
+# Pcntvs0200                  32.8017     8.2946 332.8371   3.955 9.37e-05 ***
+# Pcntvs0600                  76.5956     8.2211 325.9417   9.317  < 2e-16 ***
+# ApproxAge                    1.2974     0.6627 133.1082   1.958   0.0524 .  
+# Negative_Affect:Pcntvs0200  -3.5160    10.4425 321.3103  -0.337   0.7366    
+# Negative_Affect:Pcntvs0600  -6.3040    10.3543 314.6435  -0.609   0.5431    
+# Negative_Affect:ApproxAge   -1.5865     0.7537 241.7593  -2.105   0.0363 * 
+
+# Negative_Affect             60.8105    35.3000 190.9189   1.723   0.0866 .  
+# Pcntvs0600                  47.8709     7.3509 266.2103   6.512 3.67e-10 ***
+# Pcntvs070                  -32.9860     7.3509 266.2103  -4.487 1.07e-05 ***
+# ApproxAge                    1.0727     0.5744 183.5624   1.868   0.0634 .  
+# Negative_Affect:Pcntvs0600  -2.1006     9.2706 257.3124  -0.227   0.8209    
+# Negative_Affect:Pcntvs070    4.1530     9.2706 257.3124   0.448   0.6545    
+# Negative_Affect:ApproxAge   -1.2687     0.7581 179.1348  -1.673   0.0960 .  
+
+Negative_Affect_IL13 <- lmer(IL13 ~ Negative_Affect*Pcntvs0 + Negative_Affect*Age_Cat + 
+                               (1|Subject_ID:LPS_Batch:silanized_LPS:IL13_Base), data = df3)
+summary(Negative_Affect_IL13)
+# Negative_Affect              25.361     17.285 252.340   1.467   0.1436    
+# Pcntvs0200                   32.839      8.279 329.544   3.966 8.96e-05 ***
+# Pcntvs0600                   76.804      8.206 322.953   9.359  < 2e-16 ***
+# Age_Cat2                     18.155     19.813 259.197   0.916   0.3604    
+# Age_Cat3                     -1.849     22.688 181.952  -0.081   0.9352    
+# Age_Cat4                     54.947     23.754 140.954   2.313   0.0222 *  
+
+# Negative_Affect              23.022     16.627 224.278   1.385   0.1675    
+# Pcntvs0200                   32.983      7.342 267.253   4.493 1.05e-05 ***
+# Pcntvs0600                   80.854      7.342 267.253  11.013  < 2e-16 ***
+# Age_Cat2                    -11.398     21.009 184.874  -0.543   0.5881    
+# Age_Cat3                     -1.996     21.296 186.948  -0.094   0.9254    
+# Age_Cat4                     38.659     21.319 181.059   1.813   0.0714 .  
+# Negative_Affect:Pcntvs0200   -4.152      9.259 258.361  -0.448   0.6542    
+# Negative_Affect:Pcntvs0600   -6.253      9.259 258.361  -0.675   0.5000    
+# Negative_Affect:Age_Cat2     28.172     29.493 175.753   0.955   0.3408    
+# Negative_Affect:Age_Cat3    -43.196     27.312 174.303  -1.582   0.1156    
+# Negative_Affect:Age_Cat4    -26.967     28.006 175.113  -0.963   0.3369 
+
+slopes <- emtrends(Negative_Affect_IL13, ~ Age_Cat, var = "Negative_Affect", cov.red = FALSE)
+test(slopes)
+ # Age_Cat Negative_Affect.trend   SE  df t.ratio p.value
+ # 1                       22.08 16.4 213   1.349  0.1788
+ # 2                       19.82 22.0 294   0.899  0.3693
+ # 3                       -8.72 19.9 352  -0.438  0.6620
+ # 4                      -20.72 23.7 190  -0.873  0.3840
+
+#CONTROLLING FOR BASELINE IL13
+ # Age_Cat Negative_Affect.trend   SE  df t.ratio p.value
+ # 1                       19.55 15.7 188   1.242  0.2159
+ # 2                       47.72 24.9 180   1.913  0.0573
+ # 3                      -23.64 22.3 177  -1.059  0.2909
+ # 4                       -7.41 23.2 179  -0.320  0.7493
+```
+
+#Insomnia: IL12p70; by dose
+#INSOMNIA IL1beta
+```{r}
+#=============================================================================================
+IL1beta <- lmer(IL1beta ~ Insomnia*Pcntvs0 + Insomnia*ApproxAge + (1|Subject_ID:LPS_Batch:silanized_LPS:IL1beta_Base), data = df3)
+summary(IL1beta) 
+# Insomnia            -1471.988    696.298   236.396  -2.114  0.03556 *  
+# Pcntvs0200           1015.692    147.078   324.153   6.906 2.64e-11 ***
+# Pcntvs0600           1702.411    145.802   315.862  11.676  < 2e-16 ***
+# ApproxAge               4.419     11.377   123.312   0.388  0.69840    
+# Insomnia:Pcntvs0200    23.148    200.250   330.583   0.116  0.90804    
+# Insomnia:Pcntvs0600  -112.257    198.827   323.536  -0.565  0.57274    
+# Insomnia:ApproxAge     32.486     15.239   243.949   2.132  0.03402 *
+
+#CONTROLLING FOR BASELINE IL1beta
+# Insomnia            -1554.154    712.854   190.616  -2.180  0.03047 *  
+# Pcntvs0200           1022.670    129.035   263.617   7.926 6.43e-14 ***
+# Pcntvs0600           1688.146    129.035   263.617  13.083  < 2e-16 ***
+# ApproxAge               7.547     10.161   178.753   0.743  0.45862    
+# Insomnia:Pcntvs0200    20.777    175.365   270.990   0.118  0.90577    
+# Insomnia:Pcntvs0600  -115.886    175.365   270.990  -0.661  0.50928    
+# Insomnia:ApproxAge     34.618     16.002   178.929   2.163  0.03184 *
+
+
+IL1beta <- lmer(IL1beta ~ Insomnia*Pcntvs0 + Insomnia*Age_Cat + (1|Subject_ID:LPS_Batch:silanized_LPS:IL1beta_Base), data = df3)
+summary(IL1beta) 
+# Insomnia             -433.49     292.18  280.53  -1.484    0.139    
+# Insomnia:Age_Cat4    1269.41     518.19  246.67   2.450    0.015 *  
+
+#CONTROLLING for Baseline IL1beta
+# Insomnia             -258.95     290.85  241.62  -0.890   0.3742    
+# Pcntvs0200           1022.45     128.82  265.04   7.937 5.88e-14 ***
+# Pcntvs0600           1687.90     128.82  265.04  13.102  < 2e-16 ***
+# Age_Cat2             -673.86     377.58  176.50  -1.785   0.0760 .  
+# Age_Cat3             -400.77     375.26  178.73  -1.068   0.2870    
+# Age_Cat4              -34.16     378.23  177.77  -0.090   0.9281    
+# Insomnia:Pcntvs0200    20.80     175.07  272.42   0.119   0.9055    
+# Insomnia:Pcntvs0600  -116.00     175.07  272.42  -0.663   0.5081    
+# Insomnia:Age_Cat2     388.92     491.06  179.20   0.792   0.4294    
+# Insomnia:Age_Cat3     299.97     457.32  175.82   0.656   0.5127    
+# Insomnia:Age_Cat4    1359.20     554.92  177.16   2.449   0.0153 * 
+
+slopes <- emtrends(IL1beta, ~ Age_Cat, var = "Insomnia", cov.red = FALSE)
+test(slopes)
+ # Age_Cat Insomnia.trend  SE  df t.ratio p.value
+ # 1                 -464 270 239  -1.717  0.0873
+ # 2                 -109 336 320  -0.326  0.7449
+ # 3                  143 326 389   0.439  0.6609
+ # 4                  805 445 274   1.810  0.0715
+
+#CONTROL for baseline IL1beta
+ # Age_Cat Insomnia.trend  SE  df t.ratio p.value
+ # 1              -290.68 273 202  -1.066  0.2879
+ # 2                98.24 408 184   0.241  0.8102
+ # 3                 9.29 367 178   0.025  0.9798
+ # 4              1068.51 483 183   2.211  0.0283 *
+
+```
+
+#Insomnia, IL12p70
+
+```{r}
+#=============================================================================================
+Insomnia_IL12p70 <- lmer(IL12p70 ~ Insomnia*Pcntvs0 + (1|Subject_ID:LPS_Batch:IL12p70_Base), data = df3)
+summary(Insomnia_IL12p70)
+# Insomnia               20.35      25.51 345.14   0.798   0.4256    
+# Pcntvs0200            113.57      15.63 345.39   7.265 2.50e-12 ***
+# Pcntvs0600            175.84      15.63 345.39  11.249  < 2e-16 ***
+# Insomnia:Pcntvs0200    33.56      20.91 345.39   1.605   0.1094    
+# Insomnia:Pcntvs0600    42.66      20.91 345.39   2.040   0.0421 *  
+
+#CONTROL for baseline IL12p70
+# Insomnia               14.57      25.59 206.17   0.569   0.5696    
+# Pcntvs0200            113.57      13.10 300.75   8.671 2.72e-16 ***
+# Pcntvs0600            175.84      13.10 300.75  13.425  < 2e-16 ***
+# Insomnia:Pcntvs0200    33.56      17.52 300.75   1.916   0.0564 .  
+# Insomnia:Pcntvs0600    42.66      17.52 300.75   2.435   0.0155 *  
+
+slopes <- emtrends(Insomnia_IL12p70, ~ Pcntvs0, var = "Insomnia", cov.red = FALSE)
+test(slopes)
+ # Pcntvs0 Insomnia.trend   SE  df t.ratio p.value
+ # 70                20.3 25.6 346   0.794  0.4279
+ # 200               53.9 25.6 346   2.103  0.0362 *
+ # 600               63.0 25.6 346   2.458  0.0145 *
+
+#controlling for IL12p70_Base
+ # Pcntvs0 Insomnia.trend   SE  df t.ratio p.value
+ # 70                14.6 25.6 206   0.569  0.5697
+ # 200               48.1 25.6 206   1.880  0.0615
+ # 600               57.2 25.6 206   2.236  0.0264 *
+
+```
+
+
+
+#plot interaction code
+```{r}
+#Plot the Interaction
+eff <- ggeffect(Anhedonia_IL8, terms = c("Anhedonia", "Age_Cat"))
+eff_df <- as.data.frame(eff)
+ggplot(eff_df, aes(x = x, y = predicted)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.2) +
+  facet_wrap(~ group, nrow = 1) +
+  labs(x = "Anhedonia",
+       y = "Predicted IL8",
+       title = "IL8 vs Anhedonia by Age Category") +
+  theme_minimal()
+```
+
